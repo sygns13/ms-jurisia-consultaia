@@ -30,7 +30,7 @@ public class Configurations {
     @Schema(description = "Código del servicio", example = "SVC001")
     private String serviceCode;
 
-    @Column(name = "model", length = 100)
+    @Column(name = "model", length = 50)
     @Schema(description = "Model de GPT", example = "gpt-4o")
     private String model;
 
