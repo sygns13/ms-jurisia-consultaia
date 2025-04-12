@@ -1,6 +1,8 @@
 package pj.gob.pe.consultaia.service.business.impl;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import pj.gob.pe.consultaia.dao.mysql.CompletionDAO;
 import pj.gob.pe.consultaia.dao.mysql.ConfigurationDAO;
@@ -73,7 +75,7 @@ public class ChatGPTServiceImpl implements ChatGPTService {
 
             String OrderByID = "id";
 
-            historyCompletions = completionDAO.getConfigurationsByFilters(filters, filtersNotEquals, configurations.getMaxMessages(), OrderByID);
+            historyCompletions = completionDAO.getCompletionsByFilters(filters, filtersNotEquals, configurations.getMaxMessages(), OrderByID);
 
             // Invertir el orden de la lista
             Collections.reverse(historyCompletions);
@@ -190,5 +192,66 @@ public class ChatGPTServiceImpl implements ChatGPTService {
         responseCompletions = completionDAO.modificar(responseCompletions);
 
         return responseCompletions;
+    }
+
+    @Override
+    public Page<Completions> listar(Pageable pageable, String buscar, String SessionId) throws Exception {
+
+        String errorValidacion = "";
+
+        if(SessionId == null || SessionId.isEmpty()){
+            errorValidacion = "La sessión remitida es inválida";
+            throw new ValidationServiceException(errorValidacion);
+        }
+
+        ResponseLogin responseLogin = securityService.GetSessionData(SessionId);
+
+        if(responseLogin == null || !responseLogin.isSuccess() || !responseLogin.isItemFound() || responseLogin.getUser() == null){
+            errorValidacion = "La sessión remitida es inválida";
+            throw new ValidationServiceException(errorValidacion);
+        }
+
+        Map<String, Object> filters = new HashMap<>();
+        filters.put("userId", responseLogin.getUser().getIdUser());
+
+        Map<String, Object> filtersNotEquals = new HashMap<>();
+
+        Page<Completions> completionsPage = completionDAO.getGralCompletionsByFilters(filters, filtersNotEquals, pageable);
+
+        return completionsPage;
+    }
+
+    @Override
+    public List<Completions> getConversacion(String SessionId, String sessionUIDConversacion) throws Exception {
+
+        String errorValidacion = "";
+
+        if(SessionId == null || SessionId.isEmpty()){
+            errorValidacion = "La sessión remitida es inválida";
+            throw new ValidationServiceException(errorValidacion);
+        }
+
+        ResponseLogin responseLogin = securityService.GetSessionData(SessionId);
+
+        if(responseLogin == null || !responseLogin.isSuccess() || !responseLogin.isItemFound() || responseLogin.getUser() == null){
+            errorValidacion = "La sessión remitida es inválida";
+            throw new ValidationServiceException(errorValidacion);
+        }
+
+        Map<String, Object> filters = new HashMap<>();
+        filters.put("userId", responseLogin.getUser().getIdUser());
+        filters.put("sessionUID", sessionUIDConversacion);
+
+        Map<String, Object> filtersNotEquals = new HashMap<>();
+
+        String OrderByID = "id";
+        Integer Limit = Constantes.CANTIDAD_MIL_INTEGER;
+
+        List<Completions> historyCompletions = completionDAO.getCompletionsByFilters(filters, filtersNotEquals, Limit, OrderByID);
+
+        // Invertir el orden de la lista
+        Collections.reverse(historyCompletions);
+
+        return historyCompletions;
     }
 }

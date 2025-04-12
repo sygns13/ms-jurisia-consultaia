@@ -18,6 +18,7 @@ public class Constantes {
     public static final Integer CANTIDAD_ZERO = 0;
     public static final Integer CANTIDAD_MINIMA_PAGE = 5;
     public static final Integer CANTIDAD_UNIDAD_INTEGER = 1;
+    public static final Integer CANTIDAD_MIL_INTEGER = 1000;
 
     public static final Double CANTIDAD_ZERO_DOUBLE = 0.0;
 

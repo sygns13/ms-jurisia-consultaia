@@ -1,6 +1,8 @@
 package pj.gob.pe.consultaia.dao.mysql.impl;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 import pj.gob.pe.consultaia.dao.mysql.CompletionDAO;
 import pj.gob.pe.consultaia.model.entities.Completions;
@@ -22,7 +24,12 @@ public class CompletionDAOImpl extends GenericDAOImpl<Completions, Long> impleme
     }
 
     @Override
-    public List<Completions> getConfigurationsByFilters(Map<String, Object> filters, Map<String, Object> notEqualFilters, Integer limit, String orderByField) {
-        return repo.getConfigurationsByFilters(filters, notEqualFilters, limit, orderByField);
+    public List<Completions> getCompletionsByFilters(Map<String, Object> filters, Map<String, Object> notEqualFilters, Integer limit, String orderByField) {
+        return repo.getCompletionsByFilters(filters, notEqualFilters, limit, orderByField);
+    }
+
+    @Override
+    public Page<Completions> getGralCompletionsByFilters(Map<String, Object> filters, Map<String, Object> notEqualFilters, Pageable pageable) {
+        return repo.getGralCompletionsByFilters(filters, notEqualFilters, pageable);
     }
 }
