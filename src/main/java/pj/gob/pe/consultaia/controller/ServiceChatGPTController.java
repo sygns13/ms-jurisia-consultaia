@@ -47,7 +47,7 @@ public class ServiceChatGPTController {
 
     @Operation(summary = "Get de Peticionoes Historicas a ChatGPT", description = "Get de Peticiones a ChatGPT")
     @GetMapping("/list")
-    public ResponseEntity<Page<CompletionsResponse>> list(
+    public ResponseEntity<Page<Completions>> list(
             @RequestHeader("SessionId") String SessionId,
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "10") int size) throws Exception{
@@ -62,13 +62,14 @@ public class ServiceChatGPTController {
             throw new ModeloNotFoundException("Error de procesamiento de Datos. Comunicarse con un administrador ");
         }
 
+        /*
         for (Completions e : chatCompletionResponse.getContent()) {
             Hibernate.initialize(e.getConfigurations());
         }
 
-        Page<CompletionsResponse> pageDTO = chatCompletionResponse.map(CompletionsResponse::new);
+        Page<CompletionsResponse> pageDTO = chatCompletionResponse.map(CompletionsResponse::new);*/
 
-        return new ResponseEntity<>(pageDTO, HttpStatus.OK);
+        return new ResponseEntity<>(chatCompletionResponse, HttpStatus.OK);
     }
 
     @Operation(summary = "Get Conversacion de ChatGPT", description = "Get Conversacion de ChatGPT")
