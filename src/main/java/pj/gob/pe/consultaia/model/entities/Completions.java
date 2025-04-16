@@ -1,6 +1,7 @@
 package pj.gob.pe.consultaia.model.entities;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.persistence.*;
 import jakarta.validation.constraints.DecimalMax;
@@ -136,6 +137,7 @@ public class Completions {
     @Schema(description = "Huella del sistema", example = "abc123")
     private String systemFingerprint;
 
+    @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "ConfigurationsId", nullable = false)
     @Schema(description = "Configuración asociada")

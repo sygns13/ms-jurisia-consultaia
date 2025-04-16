@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.Hibernate;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -13,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import pj.gob.pe.consultaia.exception.ModeloNotFoundException;
 import pj.gob.pe.consultaia.model.beans.output.ChatCompletionResponse;
+import pj.gob.pe.consultaia.model.beans.output.CompletionsResponse;
 import pj.gob.pe.consultaia.model.entities.Completions;
 import pj.gob.pe.consultaia.service.business.ChatGPTService;
 import pj.gob.pe.consultaia.utils.beans.InputChatGPT;
@@ -45,7 +47,7 @@ public class ServiceChatGPTController {
 
     @Operation(summary = "Get de Peticionoes Historicas a ChatGPT", description = "Get de Peticiones a ChatGPT")
     @GetMapping("/list")
-    public ResponseEntity<Page<Completions>> list(
+    public ResponseEntity<Page<CompletionsResponse>> list(
             @RequestHeader("SessionId") String SessionId,
             @RequestParam(name = "page", defaultValue = "0") int page,
             @RequestParam(name = "size", defaultValue = "10") int size) throws Exception{
@@ -60,7 +62,13 @@ public class ServiceChatGPTController {
             throw new ModeloNotFoundException("Error de procesamiento de Datos. Comunicarse con un administrador ");
         }
 
-        return new ResponseEntity<>(chatCompletionResponse, HttpStatus.OK);
+        for (Completions e : chatCompletionResponse.getContent()) {
+            Hibernate.initialize(e.getConfigurations());
+        }
+
+        Page<CompletionsResponse> pageDTO = chatCompletionResponse.map(CompletionsResponse::new);
+
+        return new ResponseEntity<>(pageDTO, HttpStatus.OK);
     }
 
     @Operation(summary = "Get Conversacion de ChatGPT", description = "Get Conversacion de ChatGPT")
