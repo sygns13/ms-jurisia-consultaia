@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 import pj.gob.pe.consultaia.dao.mysql.CompletionDAO;
 import pj.gob.pe.consultaia.dao.mysql.ConfigurationDAO;
 import pj.gob.pe.consultaia.exception.ValidationServiceException;
+import pj.gob.pe.consultaia.exception.ValidationSessionServiceException;
 import pj.gob.pe.consultaia.model.beans.input.MainRequest;
 import pj.gob.pe.consultaia.model.beans.input.Message;
 import pj.gob.pe.consultaia.model.beans.output.ChatCompletionResponse;
@@ -42,14 +43,14 @@ public class ChatGPTServiceImpl implements ChatGPTService {
 
         if(SessionId == null || SessionId.isEmpty()){
             errorValidacion = "La sessión remitida es inválida";
-            throw new ValidationServiceException(errorValidacion);
+            throw new ValidationSessionServiceException(errorValidacion);
         }
 
         ResponseLogin responseLogin = securityService.GetSessionData(SessionId);
 
         if(responseLogin == null || !responseLogin.isSuccess() || !responseLogin.isItemFound() || responseLogin.getUser() == null){
             errorValidacion = "La sessión remitida es inválida";
-            throw new ValidationServiceException(errorValidacion);
+            throw new ValidationSessionServiceException(errorValidacion);
         }
 
         Map<String, Object> filters = new HashMap<>();
@@ -201,14 +202,14 @@ public class ChatGPTServiceImpl implements ChatGPTService {
 
         if(SessionId == null || SessionId.isEmpty()){
             errorValidacion = "La sessión remitida es inválida";
-            throw new ValidationServiceException(errorValidacion);
+            throw new ValidationSessionServiceException(errorValidacion);
         }
 
         ResponseLogin responseLogin = securityService.GetSessionData(SessionId);
 
         if(responseLogin == null || !responseLogin.isSuccess() || !responseLogin.isItemFound() || responseLogin.getUser() == null){
             errorValidacion = "La sessión remitida es inválida";
-            throw new ValidationServiceException(errorValidacion);
+            throw new ValidationSessionServiceException(errorValidacion);
         }
 
         Map<String, Object> filters = new HashMap<>();
@@ -228,14 +229,14 @@ public class ChatGPTServiceImpl implements ChatGPTService {
 
         if(SessionId == null || SessionId.isEmpty()){
             errorValidacion = "La sessión remitida es inválida";
-            throw new ValidationServiceException(errorValidacion);
+            throw new ValidationSessionServiceException(errorValidacion);
         }
 
         ResponseLogin responseLogin = securityService.GetSessionData(SessionId);
 
         if(responseLogin == null || !responseLogin.isSuccess() || !responseLogin.isItemFound() || responseLogin.getUser() == null){
             errorValidacion = "La sessión remitida es inválida";
-            throw new ValidationServiceException(errorValidacion);
+            throw new ValidationSessionServiceException(errorValidacion);
         }
 
         Map<String, Object> filters = new HashMap<>();
