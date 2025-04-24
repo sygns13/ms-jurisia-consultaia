@@ -73,8 +73,8 @@ public class ServiceChatGPTController {
         return new ResponseEntity<>(chatCompletionResponse, HttpStatus.OK);
     }
 
-    @Operation(summary = "Get de Peticionoes Historicas a ChatGPT", description = "Get de Peticiones a ChatGPT")
-    @GetMapping("/getoperaciones")
+    @Operation(summary = "Get Total de Peticionoes Historicas a ChatGPT", description = "Get de Peticiones a ChatGPT")
+    @GetMapping("/gettotaloperaciones")
     public ResponseEntity<ResponseTotalConversaciones> list(
             @RequestHeader("SessionId") String SessionId) throws Exception{
 
