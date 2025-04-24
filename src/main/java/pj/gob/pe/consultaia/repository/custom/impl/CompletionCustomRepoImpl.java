@@ -155,6 +155,48 @@ public class CompletionCustomRepoImpl implements CompletionCustomRepo {
         return new PageImpl<>(resultList, pageable, totalElements);
     }
 
+    @Override
+    public Long getTotalConversaciones(
+            Map<String, Object> filters,
+            Map<String, Object> notEqualFilters) {
+
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+
+        // Consulta principal para obtener los datos paginados
+        CriteriaQuery<Completions> query = cb.createQuery(Completions.class);
+        Root<Completions> completions = query.from(Completions.class);
+
+        // Construir predicados y subconsulta (similar al código anterior)
+        Predicate mainPredicate = buildPredicate(completions, cb, filters, notEqualFilters);
+        Subquery<Long> subquery = query.subquery(Long.class);
+        Root<Completions> subRoot = subquery.from(Completions.class);
+        Predicate subPredicate = buildPredicate(subRoot, cb, filters, notEqualFilters);
+
+        subquery.select(cb.min(subRoot.get("id")))
+                .where(subPredicate)
+                .groupBy(subRoot.get("sessionUID"));
+
+        Predicate finalPredicate = cb.and(
+                mainPredicate,
+                cb.in(completions.get("id")).value(subquery)
+        );
+
+        query.select(completions).where(finalPredicate);
+
+        // Consulta para obtener el total de elementos (count)
+        CriteriaQuery<Long> countQuery = cb.createQuery(Long.class);
+        Root<Completions> countRoot = countQuery.from(Completions.class);
+        Predicate countPredicate = buildPredicate(countRoot, cb, filters, notEqualFilters);
+
+        // Contar el total de grupos únicos de "session" que cumplen los filtros
+        countQuery.select(cb.countDistinct(countRoot.get("sessionUID"))) // ¡Clave aquí!
+                .where(countPredicate);
+
+        Long totalElements = entityManager.createQuery(countQuery).getSingleResult();
+
+        return totalElements;
+    }
+
     // Método helper para construir predicados dinámicos
     private Predicate buildPredicate(
             Root<Completions> root,

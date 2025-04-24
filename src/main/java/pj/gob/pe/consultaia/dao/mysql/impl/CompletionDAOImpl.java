@@ -32,4 +32,11 @@ public class CompletionDAOImpl extends GenericDAOImpl<Completions, Long> impleme
     public Page<Completions> getGralCompletionsByFilters(Map<String, Object> filters, Map<String, Object> notEqualFilters, Pageable pageable) {
         return repo.getGralCompletionsByFilters(filters, notEqualFilters, pageable);
     }
+
+    @Override
+    public Long getTotalConversaciones(
+            Map<String, Object> filters,
+            Map<String, Object> notEqualFilters){
+        return repo.getTotalConversaciones(filters, notEqualFilters);
+    }
 }

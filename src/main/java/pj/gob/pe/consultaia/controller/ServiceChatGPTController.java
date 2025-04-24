@@ -18,6 +18,7 @@ import pj.gob.pe.consultaia.model.beans.output.CompletionsResponse;
 import pj.gob.pe.consultaia.model.entities.Completions;
 import pj.gob.pe.consultaia.service.business.ChatGPTService;
 import pj.gob.pe.consultaia.utils.beans.InputChatGPT;
+import pj.gob.pe.consultaia.utils.beans.ResponseTotalConversaciones;
 
 import java.util.List;
 
@@ -70,6 +71,26 @@ public class ServiceChatGPTController {
         Page<CompletionsResponse> pageDTO = chatCompletionResponse.map(CompletionsResponse::new);*/
 
         return new ResponseEntity<>(chatCompletionResponse, HttpStatus.OK);
+    }
+
+    @Operation(summary = "Get de Peticionoes Historicas a ChatGPT", description = "Get de Peticiones a ChatGPT")
+    @GetMapping("/getoperaciones")
+    public ResponseEntity<ResponseTotalConversaciones> list(
+            @RequestHeader("SessionId") String SessionId) throws Exception{
+
+        String buscar = "";
+
+        Long totalConversaciones = chatGPTService.getTotalConversaciones(buscar, SessionId);
+
+        if(totalConversaciones == null) {
+            throw new ModeloNotFoundException("Error de procesamiento de Datos. Comunicarse con un administrador ");
+        }
+
+        ResponseTotalConversaciones responseTotalConversaciones = new ResponseTotalConversaciones();
+
+        responseTotalConversaciones.setTotalConversaciones(totalConversaciones);
+
+        return new ResponseEntity<>(responseTotalConversaciones, HttpStatus.OK);
     }
 
     @Operation(summary = "Get Conversacion de ChatGPT", description = "Get Conversacion de ChatGPT")

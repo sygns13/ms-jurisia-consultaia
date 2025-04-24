@@ -15,4 +15,6 @@ public interface ChatGPTService {
     Page<Completions> listar(Pageable pageable, String buscar, String SessionId) throws Exception;
 
     List<Completions> getConversacion(String SessionId, String sessionUIDConversacion) throws Exception;
+
+    Long getTotalConversaciones(String buscar, String SessionId) throws Exception;
 }

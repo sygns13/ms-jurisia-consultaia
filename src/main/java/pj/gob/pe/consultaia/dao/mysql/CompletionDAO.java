@@ -18,4 +18,8 @@ public interface CompletionDAO extends GenericDAO<Completions, Long>{
             Map<String, Object> filters,
             Map<String, Object> notEqualFilters,
             Pageable pageable);
+
+    Long getTotalConversaciones(
+            Map<String, Object> filters,
+            Map<String, Object> notEqualFilters);
 }
