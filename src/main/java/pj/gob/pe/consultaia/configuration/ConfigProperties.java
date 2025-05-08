@@ -28,5 +28,14 @@ public class ConfigProperties {
     private String REDIS_KEY_PREFIX;
 
     @Value("${spring.data.redis.ttl:3600}")
-    private long REDIS_TTL;
+    private Long REDIS_TTL;
+
+    @Value("${sij.proxy.config.enabled:false}")
+    private Boolean proxyEnabled;
+
+    @Value("${sij.proxy.config.host}")
+    private String proxyURL;
+
+    @Value("${sij.proxy.config.port}")
+    private Integer proxyPort;
 }

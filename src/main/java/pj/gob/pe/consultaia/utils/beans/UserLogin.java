@@ -33,10 +33,7 @@ public class UserLogin implements Serializable {
     private String nombreDependencia;
     private String codigoDependencia;
     private String siglaDependencia;
-    private Long idCargo;
-    private String nombreCargo;
-    private String codigoCargo;
-    private String siglaCargo;
+    private String cargo;
     private Long idTipoUser;
     private String tipoUser;
     private TokenResponse token;
