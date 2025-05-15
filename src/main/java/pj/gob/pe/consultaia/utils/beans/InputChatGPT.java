@@ -17,7 +17,7 @@ public class InputChatGPT {
     @JsonProperty("sessionUID")
     private String sessionUID;
 
-    @Schema(description = "Username del Usuario")
+    @Schema(description = "Prompt de consulta a la API")
     @NotNull( message = "{input.prompt.notnull}")
     @Size(min = 1, max = 1000, message = "{input.prompt.size}")
     private String prompt;
