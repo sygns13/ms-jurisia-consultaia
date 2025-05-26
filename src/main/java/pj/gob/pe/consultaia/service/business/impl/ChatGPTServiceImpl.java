@@ -323,13 +323,15 @@ public class ChatGPTServiceImpl implements ChatGPTService {
             newSectionTemplate.setIsSaltoLinea(sectionTemplate.getIsSaltoLinea());
             newSectionTemplate.setIsProcessed(false);
 
-            if(sectionTemplate.getIsSendIA().equals(Constantes.REGISTRO_ACTIVO))
+            if(sectionTemplate.getIsSendIA().equals(Constantes.REGISTRO_INACTIVO))
                 newSectionTemplate.setIsProcessed(true);
 
             sectionTemplatesResponse.add(newSectionTemplate);
         }
 
         List<ExpedienteCompletion> expCompletions = expedienteCompletionDAO.findExpedienteCompletions(inputDocument.getNUnico(), inputDocument.getCodeTemplate());
+
+        String UIDSession = UUID.randomUUID().toString();
 
         sectionTemplatesResponse.forEach(sectionTemplate -> {
 
@@ -381,7 +383,7 @@ public class ChatGPTServiceImpl implements ChatGPTService {
                 responseCompletions.setFechaSend(fechaActualTime);
 
                 responseCompletions.setConfigurations(configurations);
-                responseCompletions.setSessionUID(null);
+                responseCompletions.setSessionUID(UIDSession);
                 responseCompletions.setStatus(Constantes.COMPLETION_INICIADO);
 
                 try {

@@ -11,8 +11,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Schema(description = "Sections of Template Model")
-@Entity
-@Table(name = "SectionTemplates")
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
