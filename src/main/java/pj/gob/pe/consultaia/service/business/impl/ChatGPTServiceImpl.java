@@ -1,10 +1,12 @@
 package pj.gob.pe.consultaia.service.business.impl;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import pj.gob.pe.consultaia.dao.mysql.CompletionDAO;
 import pj.gob.pe.consultaia.dao.mysql.ConfigurationDAO;
@@ -37,6 +39,8 @@ public class ChatGPTServiceImpl implements ChatGPTService {
     private final CompletionDAO completionDAO;
     private final ExpedienteCompletionDAO expedienteCompletionDAO;
     private final OpenAPIService openAPIService;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final ObjectMapper objectMapper;
 
     private final String serviceChatGPT1 = "chat_gpt_1";
     private final String serviceChatGPT2 = "chat_gpt_2";
@@ -198,6 +202,12 @@ public class ChatGPTServiceImpl implements ChatGPTService {
         responseCompletions.setStatus(Constantes.COMPLETION_EXITOSO);
 
         responseCompletions = completionDAO.modificar(responseCompletions);
+
+
+        // Enviar mensaje a Metrics by Kafka
+        //String json = objectMapper.writeValueAsString(responseCompletions);
+        responseCompletions.setConfigurationsId(configurations.getId());
+        kafkaTemplate.send("judicial-metrics", "key1", responseCompletions);
 
         return responseCompletions;
     }

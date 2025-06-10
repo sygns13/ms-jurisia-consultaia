@@ -1,0 +1,68 @@
+version: '3.8'
+
+networks:
+  aforo255:
+    external: true
+
+services:
+  kafka1:
+    image: apache/kafka:3.9.1
+    container_name: kafka1
+    hostname: kafka1
+    ports:
+      - "9094:9094"
+      - "19093:9093"
+    networks:
+      - aforo255
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      
+      # CORRECCIÓN: Formato en una sola línea sin saltos
+      KAFKA_LISTENERS: "INTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9094"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka1:9092,CONTROLLER://kafka1:9093,EXTERNAL://localhost:9094"
+      
+      # CORRECCIÓN: Sin espacios después de las comas
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka1:9093,2@kafka2:9093,3@kafka3:9093"
+      KAFKA_CREATE_TOPICS: "judicial-metrics:12:3,consultaia-metrics:12:3"
+
+  kafka2:
+    image: apache/kafka:3.9.1
+    container_name: kafka2
+    hostname: kafka2
+    ports:
+      - "9095:9095"
+      - "19095:9093"
+    networks:
+      - aforo255
+    environment:
+      KAFKA_NODE_ID: 2
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: "INTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9095"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka2:9092,CONTROLLER://kafka2:9093,EXTERNAL://localhost:9095"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka1:9093,2@kafka2:9093,3@kafka3:9093"
+
+  kafka3:
+    image: apache/kafka:3.9.1
+    container_name: kafka3
+    hostname: kafka3
+    ports:
+      - "9096:9096"
+      - "19097:9093"
+    networks:
+      - aforo255
+    environment:
+      KAFKA_NODE_ID: 3
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: "INTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:9096"
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka3:9092,CONTROLLER://kafka3:9093,EXTERNAL://localhost:9096"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka1:9093,2@kafka2:9093,3@kafka3:9093"

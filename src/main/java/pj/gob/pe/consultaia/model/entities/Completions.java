@@ -143,6 +143,9 @@ public class Completions {
     @Schema(description = "Configuración asociada")
     private Configurations configurations;
 
+    @Transient
+    private Integer configurationsId;
+
     @Column(name = "sessionUID", length = 50, nullable = false)
     @Schema(description = "ID único de la sesión", example = "session-12345")
     private String sessionUID;

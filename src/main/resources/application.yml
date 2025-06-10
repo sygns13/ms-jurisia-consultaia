@@ -1,0 +1,96 @@
+spring:
+  application:
+    name: ${SPRING_APP_NAME:ms-jurisia-consultaia}
+
+  profiles:
+    active: dev
+
+  docker:
+    compose:
+      enabled: false
+
+  jpa:
+    database: mysql
+    database-platform: org.hibernate.dialect.MySQLDialect
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+        enable_lazy_load_no_trans: true
+    show-sql: false
+    hibernate:
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    # ddl-auto: update  # Descomentar si es necesario
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${DATABASE_HOST:localhost}:${DATABASE_PORT:3307}/${DATABASE_NAME:JURISDB_CONSULTATIONIA}?useUnicode=true&useJDBCCompliantTimezoneShift=true&useLegacyDatetimeCode=false&serverTimezone=UTC
+    username: ${DATABASE_USERNAME:root}
+    password: ${DATABASE_PASSWORD:123456}
+
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      prefix: jurisia_consultationia
+      ttl: 3600
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094,localhost:9095,localhost:9096}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      #value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+      batch-size: 16384
+      linger-ms: 5
+      compression-type: gzip
+
+
+server:
+  port: 8011
+
+logging:
+  level:
+    org:
+      hibernate:
+        SQL: debug
+        type:
+          descriptor:
+            sql:
+              BasicBinder: TRACE
+    org.apache.kafka: DEBUG
+    org.springframework.kafka: DEBUG
+  pattern:
+    console: ${LOGPATTERN_CONSOLE:%green(%d{HH:mm:ss.SSS}) %blue(%-5level) %red([%thread]) %yellow(%logger{15}) - %msg%n}
+
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+# --- Configuración personalizada ---
+api:
+  openai:
+    main:
+      url: https://api.openai.com
+    chat:
+      path: /v1/chat/completions
+    secret:
+      key:
+
+  security:
+    url: http://localhost:8010
+    get:
+      session:
+        path: /v1/auth/session/:sessionId
+
+sij:
+  proxy:
+    config:
+      enabled: true
+      host: 172.17.16.213
+      port: 8988
