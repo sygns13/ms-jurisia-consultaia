@@ -1,7 +1,7 @@
 version: '3.8'
 
 networks:
-  aforo255:
+  csjan:
     external: true
 
 services:
@@ -13,7 +13,7 @@ services:
       - "9094:9094"
       - "19093:9093"
     networks:
-      - aforo255
+      - csjan
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
@@ -37,7 +37,7 @@ services:
       - "9095:9095"
       - "19095:9093"
     networks:
-      - aforo255
+      - csjan
     environment:
       KAFKA_NODE_ID: 2
       KAFKA_PROCESS_ROLES: broker,controller
@@ -56,7 +56,7 @@ services:
       - "9096:9096"
       - "19097:9093"
     networks:
-      - aforo255
+      - csjan
     environment:
       KAFKA_NODE_ID: 3
       KAFKA_PROCESS_ROLES: broker,controller
