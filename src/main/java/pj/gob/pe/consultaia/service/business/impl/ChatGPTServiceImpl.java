@@ -26,9 +26,11 @@ import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.Constantes;
 import pj.gob.pe.consultaia.utils.beans.*;
 
+import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Service
 @RequiredArgsConstructor
@@ -341,6 +343,27 @@ public class ChatGPTServiceImpl implements ChatGPTService {
 
         List<ExpedienteCompletion> expCompletions = expedienteCompletionDAO.findExpedienteCompletions(inputDocument.getNUnico(), inputDocument.getCodeTemplate());
 
+
+
+        String model = configurations.getModel();
+        String roleSystem = configurations.getRoleSystem();
+        BigDecimal temperature = configurations.getTemperature().setScale(1, RoundingMode.HALF_UP);
+        AtomicReference<String> object = new AtomicReference<>("");
+        AtomicReference<String> modelResponse = new AtomicReference<>("");
+        AtomicReference<String> roleResponse = new AtomicReference<>("");
+        AtomicReference<Integer> logprobs = new AtomicReference<>(0);
+        AtomicReference<String> finishReason = new AtomicReference<>("");
+        AtomicReference<Integer> promptTokens = new AtomicReference<>(0);
+        AtomicReference<Integer> completionTokens = new AtomicReference<>(0);
+        AtomicReference<Integer> totalTokens = new AtomicReference<>(0);
+        AtomicReference<Integer> cachedTokens = new AtomicReference<>(0);
+        AtomicReference<Integer> audioTokens = new AtomicReference<>(0);
+        AtomicReference<Integer> completionReasoningTokens = new AtomicReference<>(0);
+        AtomicReference<Integer> completionAudioTokens = new AtomicReference<>(0);
+        AtomicReference<Integer> completionAceptedTokens = new AtomicReference<>(0);
+        AtomicReference<Integer> completionRejectedTokens = new AtomicReference<>(0);
+        AtomicReference<String> serviceTier = new AtomicReference<>("");
+        Integer configurationsId = configurations.getId();
         String UIDSession = UUID.randomUUID().toString();
 
         sectionTemplatesResponse.forEach(sectionTemplate -> {
@@ -415,11 +438,15 @@ public class ChatGPTServiceImpl implements ChatGPTService {
                     }
                 }
 
+                object.set(response.getObject());
+
                 responseCompletions.setFechaResponse(fechaActualTime);
                 responseCompletions.setIdGpt(response.getId());
                 responseCompletions.setObject(response.getObject());
                 responseCompletions.setCreated(response.getCreated());
                 responseCompletions.setModelResponse(response.getModel());
+
+                modelResponse.set(responseCompletions.getModelResponse());
 
                 if(!response.getChoices().isEmpty()){
                     Choice choiseZero = response.getChoices().get(0);
@@ -428,6 +455,10 @@ public class ChatGPTServiceImpl implements ChatGPTService {
                     responseCompletions.setRefusal(choiseZero.getMessage().getRefusal());
                     responseCompletions.setLogprobs(choiseZero.getLogprobs());
                     responseCompletions.setFinishReason(choiseZero.getFinishReason());
+
+                    roleResponse.set(responseCompletions.getRoleResponse());
+                    logprobs.set(responseCompletions.getLogprobs());
+                    finishReason.set(responseCompletions.getFinishReason());
                 }
 
                 //TODO: Agregar campos
@@ -436,9 +467,16 @@ public class ChatGPTServiceImpl implements ChatGPTService {
                     responseCompletions.setCompletionTokens(response.getUsage().getCompletionTokens());
                     responseCompletions.setTotalTokens(response.getUsage().getTotalTokens());
 
+                    promptTokens.set(promptTokens.get() + responseCompletions.getPromptTokens());
+                    completionTokens.set(completionTokens.get() + responseCompletions.getCompletionTokens());
+                    totalTokens.set(totalTokens.get() + responseCompletions.getTotalTokens());
+
                     if(response.getUsage().getPromptTokensDetails() != null){
                         responseCompletions.setCachedTokens(response.getUsage().getPromptTokensDetails().getCachedTokens());
                         responseCompletions.setAudioTokens(response.getUsage().getPromptTokensDetails().getAudioTokens());
+
+                        cachedTokens.set(cachedTokens.get() + responseCompletions.getCachedTokens());
+                        audioTokens.set(audioTokens.get() + responseCompletions.getAudioTokens());
                     }
 
                     if(response.getUsage().getCompletionTokensDetails() != null){
@@ -446,12 +484,19 @@ public class ChatGPTServiceImpl implements ChatGPTService {
                         responseCompletions.setCompletionAudioTokens(response.getUsage().getCompletionTokensDetails().getAudioTokens());
                         responseCompletions.setCompletionAceptedTokens(response.getUsage().getCompletionTokensDetails().getAcceptedPredictionTokens());
                         responseCompletions.setCompletionRejectedTokens(response.getUsage().getCompletionTokensDetails().getRejectedPredictionTokens());
+
+                        completionReasoningTokens.set(completionReasoningTokens.get() + responseCompletions.getCompletionReasoningTokens());
+                        completionAudioTokens.set(completionAudioTokens.get() + responseCompletions.getCompletionAudioTokens());
+                        completionAceptedTokens.set(completionAceptedTokens.get() + responseCompletions.getCompletionAceptedTokens());
+                        completionRejectedTokens.set(completionRejectedTokens.get() + responseCompletions.getCompletionRejectedTokens());
                     }
                 }
 
                 responseCompletions.setServiceTier(response.getServiceTier());
                 responseCompletions.setSystemFingerprint(response.getSystemFingerprint());
                 responseCompletions.setStatus(Constantes.COMPLETION_EXITOSO);
+
+                serviceTier.set(responseCompletions.getServiceTier());
 
                 try {
                     responseCompletions = expedienteCompletionDAO.modificar(responseCompletions);
@@ -470,6 +515,27 @@ public class ChatGPTServiceImpl implements ChatGPTService {
         responseDocument.setNUnico(inputDocument.getNUnico());
         responseDocument.setCodeTemplate(inputDocument.getCodeTemplate());
         responseDocument.setSectionTemplates(sectionTemplatesResponse);
+
+        responseDocument.setModel(model);
+        responseDocument.setRoleSystem(roleSystem);
+        responseDocument.setTemperature(temperature);
+        responseDocument.setObject(object.get());
+        responseDocument.setModelResponse(modelResponse.get());
+        responseDocument.setRoleResponse(roleResponse.get());
+        responseDocument.setLogprobs(logprobs.get());
+        responseDocument.setFinishReason(finishReason.get());
+        responseDocument.setPromptTokens(promptTokens.get());
+        responseDocument.setCompletionTokens(completionTokens.get());
+        responseDocument.setTotalTokens(totalTokens.get());
+        responseDocument.setCachedTokens(cachedTokens.get());
+        responseDocument.setAudioTokens(audioTokens.get());
+        responseDocument.setCompletionReasoningTokens(completionReasoningTokens.get());
+        responseDocument.setCompletionAudioTokens(completionAudioTokens.get());
+        responseDocument.setCompletionAceptedTokens(completionAceptedTokens.get());
+        responseDocument.setCompletionRejectedTokens(completionRejectedTokens.get());
+        responseDocument.setServiceTier(serviceTier.get());
+        responseDocument.setConfigurationsId(configurationsId);
+        responseDocument.setSessionUID(UIDSession);
 
 
         return responseDocument;
