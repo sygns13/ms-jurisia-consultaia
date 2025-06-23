@@ -87,6 +87,13 @@ api:
     get:
       session:
         path: /v1/auth/session/:sessionId
+  judicial:
+    url: http://localhost:8012
+    get:
+      sedes:
+        path: /v1/sedes/active
+      instancias:
+        path: /v1/instancias/active
 
 sij:
   proxy:

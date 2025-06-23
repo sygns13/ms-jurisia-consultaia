@@ -1,4 +1,4 @@
-package pj.gob.pe.consultaia.utils.beans;
+package pj.gob.pe.consultaia.utils.beans.responses;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;

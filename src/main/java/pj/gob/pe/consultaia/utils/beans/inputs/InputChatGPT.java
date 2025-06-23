@@ -1,4 +1,4 @@
-package pj.gob.pe.consultaia.utils.beans;
+package pj.gob.pe.consultaia.utils.beans.inputs;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;

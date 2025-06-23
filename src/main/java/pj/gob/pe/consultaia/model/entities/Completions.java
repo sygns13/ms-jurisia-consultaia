@@ -9,9 +9,11 @@ import jakarta.validation.constraints.DecimalMin;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import pj.gob.pe.consultaia.utils.beans.responses.Sedes;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Schema(description = "Entidad que representa la tabla Completions")
 @Entity
@@ -143,9 +145,6 @@ public class Completions {
     @Schema(description = "Configuración asociada")
     private Configurations configurations;
 
-    @Transient
-    private Integer configurationsId;
-
     @Column(name = "sessionUID", length = 50, nullable = false)
     @Schema(description = "ID único de la sesión", example = "session-12345")
     private String sessionUID;
@@ -153,4 +152,10 @@ public class Completions {
     @Column(name = "status")
     @Schema(description = "status de la transaccion", example = "0")
     private Integer status;
+
+    @Transient
+    private Integer configurationsId;
+
+    @Transient
+    private List<Sedes> sedes;
 }

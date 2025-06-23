@@ -4,9 +4,9 @@ package pj.gob.pe.consultaia.service.business;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import pj.gob.pe.consultaia.model.entities.Completions;
-import pj.gob.pe.consultaia.utils.beans.InputChatGPT;
-import pj.gob.pe.consultaia.utils.beans.InputDocument;
-import pj.gob.pe.consultaia.utils.beans.ResponseDocument;
+import pj.gob.pe.consultaia.utils.beans.inputs.InputChatGPT;
+import pj.gob.pe.consultaia.utils.beans.inputs.InputDocument;
+import pj.gob.pe.consultaia.utils.beans.responses.ResponseDocument;
 
 import java.util.List;
 

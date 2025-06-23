@@ -1,9 +1,10 @@
-package pj.gob.pe.consultaia.utils.beans;
+package pj.gob.pe.consultaia.utils.beans.inputs;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import pj.gob.pe.consultaia.utils.beans.SectionTemplate;
 
 import java.util.List;
 

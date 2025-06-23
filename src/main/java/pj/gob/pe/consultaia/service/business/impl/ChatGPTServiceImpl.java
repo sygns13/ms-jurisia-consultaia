@@ -21,10 +21,14 @@ import pj.gob.pe.consultaia.model.entities.Completions;
 import pj.gob.pe.consultaia.model.entities.Configurations;
 import pj.gob.pe.consultaia.model.entities.ExpedienteCompletion;
 import pj.gob.pe.consultaia.service.business.ChatGPTService;
+import pj.gob.pe.consultaia.service.externals.JudicialService;
 import pj.gob.pe.consultaia.service.externals.OpenAPIService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.Constantes;
 import pj.gob.pe.consultaia.utils.beans.*;
+import pj.gob.pe.consultaia.utils.beans.inputs.InputChatGPT;
+import pj.gob.pe.consultaia.utils.beans.inputs.InputDocument;
+import pj.gob.pe.consultaia.utils.beans.responses.*;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -37,6 +41,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class ChatGPTServiceImpl implements ChatGPTService {
 
     private final SecurityService securityService;
+    private final JudicialService judicialService;
     private final ConfigurationDAO configurationDAO;
     private final CompletionDAO completionDAO;
     private final ExpedienteCompletionDAO expedienteCompletionDAO;
@@ -208,6 +213,32 @@ public class ChatGPTServiceImpl implements ChatGPTService {
 
         // Enviar mensaje a Metrics by Kafka
         //String json = objectMapper.writeValueAsString(responseCompletions);
+        List<DataSedeDTO> sedesDTO = judicialService.GetSedes(SessionId);
+        List<DataInstanciaDTO> instanciasDTOS = judicialService.GetInstancias(SessionId);
+
+        List<Sedes> sedes = new ArrayList<>();
+
+        sedesDTO.forEach( sedeDTO -> {
+            Sedes sede = new Sedes();
+            sede.setCodSede(sedeDTO.getCodigoSede());
+            sede.setSede(sedeDTO.getSede());
+
+            List<Instancias> instancias = new ArrayList<>();
+
+            instanciasDTOS.forEach( instanciaDTO -> {
+                Instancias instancia = new Instancias();
+
+                instancia.setCodInstancia(instanciaDTO.getCodigoInstancia());
+                instancia.setInstancia(instanciaDTO.getInstancia());
+
+                instancias.add(instancia);
+            });
+
+            sede.setInstancias(instancias);
+            sedes.add(sede);
+        });
+
+        responseCompletions.setSedes(sedes);
         responseCompletions.setConfigurationsId(configurations.getId());
         kafkaTemplate.send("judicial-metrics", "key1", responseCompletions);
 

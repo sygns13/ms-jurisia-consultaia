@@ -38,4 +38,13 @@ public class ConfigProperties {
 
     @Value("${sij.proxy.config.port}")
     private Integer proxyPort;
+
+    @Value("${api.judicial.url}")
+    private String urlJudicialAPI;
+
+    @Value("${api.judicial.get.sedes.path}")
+    private String pathSedes;
+
+    @Value("${api.judicial.get.instancias.path}")
+    private String pathInstancias;
 }

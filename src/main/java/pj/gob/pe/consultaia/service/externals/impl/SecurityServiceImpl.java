@@ -1,6 +1,5 @@
 package pj.gob.pe.consultaia.service.externals.impl;
 
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
@@ -9,7 +8,7 @@ import org.springframework.web.client.RestClient;
 import pj.gob.pe.consultaia.configuration.ConfigProperties;
 import pj.gob.pe.consultaia.exception.AuthOpenAIException;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
-import pj.gob.pe.consultaia.utils.beans.ResponseLogin;
+import pj.gob.pe.consultaia.utils.beans.responses.ResponseLogin;
 
 @Service
 public class SecurityServiceImpl implements SecurityService {
