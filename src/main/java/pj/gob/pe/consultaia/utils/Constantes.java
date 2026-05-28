@@ -35,4 +35,9 @@ public class Constantes {
     public static final Integer COMPLETION_EXITOSO = 1;
     public static final Integer COMPLETION_ERROR = 2;
 
+    public static final Integer CALIFICACION_DEMANDA_INICIADA = 0;
+    public static final Integer CALIFICACION_DEMANDA_EXITOSA = 1;
+    public static final Integer CALIFICACION_DEMANDA_ERROR_FILE_NOT_FOUND = 2;
+    public static final Integer CALIFICACION_DEMANDA_ERROR_GEMINY = 3;
+
 }
