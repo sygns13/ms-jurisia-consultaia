@@ -35,8 +35,10 @@ import pj.gob.pe.consultaia.service.business.GeminiService;
 import pj.gob.pe.consultaia.service.externals.FtpService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.Constantes;
+import pj.gob.pe.consultaia.utils.DocxGeneratorUtil;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputCalificacionDemanda;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseCalificacionDemanda;
+import pj.gob.pe.consultaia.utils.beans.responses.ResponseCalificacionDemandaDocx;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseLogin;
 
 import java.io.ByteArrayInputStream;
@@ -183,6 +185,26 @@ public class GeminiServiceImpl implements GeminiService {
         response.setTimeSeconds(demanda.getTimeSeconds());
         response.setFechaSend(demanda.getFechaSend());
         response.setFechaResponse(demanda.getFechaResponse());
+
+        return response;
+    }
+
+    @Override
+    public ResponseCalificacionDemandaDocx calificarDemandaDocx(InputCalificacionDemanda input, String sessionId) throws Exception {
+
+        ResponseCalificacionDemanda calificacion = calificarDemanda(input, sessionId);
+
+        byte[] docxBytes = DocxGeneratorUtil.textToDocx(calificacion.getResponse());
+
+        String anio = input.getAnio() != null ? input.getAnio() : "0";
+        String expNro = input.getExpNro() != null ? input.getExpNro() : "0";
+        String id = calificacion.getId() != null ? String.valueOf(calificacion.getId()) : "0";
+
+        String nombreArchivo = String.format("calificacion_demanda_%s_%s_%s.docx", anio, expNro, id);
+
+        ResponseCalificacionDemandaDocx response = new ResponseCalificacionDemandaDocx();
+        response.setDocumento(docxBytes);
+        response.setNombreArchivo(nombreArchivo);
 
         return response;
     }

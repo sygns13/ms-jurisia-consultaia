@@ -4,6 +4,8 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -14,6 +16,7 @@ import pj.gob.pe.consultaia.service.business.GeminiService;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputCalificacionDemanda;
 import pj.gob.pe.consultaia.utils.beans.responses.ApiResponse;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseCalificacionDemanda;
+import pj.gob.pe.consultaia.utils.beans.responses.ResponseCalificacionDemandaDocx;
 
 import java.util.concurrent.Callable;
 
@@ -45,6 +48,23 @@ public class ServiceGeminiController {
                 return ResponseEntity.internalServerError()
                         .body(ApiResponse.error(cause.getMessage(), seconds));
             }
+        };
+    }
+
+    @Operation(summary = "Calificación de demanda con Gemini en formato DOCX",
+            description = "Mismo flujo que /calificar-demanda, pero retorna el resultado como archivo .docx descargable")
+    @PostMapping("/calificar-demanda-docx")
+    public Callable<ResponseEntity<byte[]>> calificarDemandaDocx(
+            @RequestHeader("SessionId") String SessionId,
+            @Valid @RequestBody InputCalificacionDemanda input) {
+
+        return () -> {
+            ResponseCalificacionDemandaDocx result = geminiService.calificarDemandaDocx(input, SessionId);
+
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + result.getNombreArchivo() + "\"")
+                    .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                    .body(result.getDocumento());
         };
     }
 }
