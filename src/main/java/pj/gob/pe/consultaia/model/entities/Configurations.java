@@ -98,4 +98,9 @@ public class Configurations {
     @Schema(description = "Usuario que editó el registro")
     @Column(name="updUserId", nullable = true)
     private Long updUserId;
+
+    @Column(name = "maxOutputTokens", nullable = true)
+    @Schema(description = "Maximo de Tokens de Salida del Modelo", example = "8192")
+    private Integer maxOutputTokens;
+
 }

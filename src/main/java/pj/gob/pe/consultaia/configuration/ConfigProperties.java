@@ -47,4 +47,29 @@ public class ConfigProperties {
 
     @Value("${api.judicial.get.instancias.path}")
     private String pathInstancias;
+
+    // Inyectamos la cadena completa del JSON desde el YAML
+    @Value("${gcp.credentials.content}")
+    private String gcpCredentialsContent;
+
+    @Value("${gcp.projectId}")
+    private String gcpProjectId;
+
+    @Value("${gcp.locationGlobal}")
+    private String gcpLocationGlobal;
+
+    @Value("${gcp.dataStoreId}")
+    private String gcpDataStoreId;
+
+    @Value("${gcp.scoped}")
+    private String gcpScoped;
+
+    @Value("${gcp.endpoint}")
+    private String gcpEndpoint;
+
+    @Value("${gcp.endpointAPI}")
+    private String gcpEndpointAPI;
+
+    @Value("${gcp.datastorePath}")
+    private String gcpDatastorePath;
 }

@@ -2,6 +2,10 @@ spring:
   application:
     name: ${SPRING_APP_NAME:ms-jurisia-consultaia}
 
+  mvc:
+    async:
+      request-timeout: 600000
+
   profiles:
     active: dev
 
@@ -34,6 +38,11 @@ spring:
       port: 6379
       prefix: jurisia_consultationia
       ttl: 3600
+
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
 
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9094,localhost:9095,localhost:9096}
@@ -100,4 +109,17 @@ sij:
     config:
       enabled: true
       host: 172.17.16.213
-      port: 8988
+      port: 1598
+
+gcp:
+  projectId:
+  locationGlobal: global
+  dataStoreId:
+  scoped: https://www.googleapis.com/auth/cloud-platform
+  endpoint: aiplatform.googleapis.com:443
+  endpointAPI: aiplatform.googleapis.com
+  datastorePath: projects/%s/locations/global/collections/default_collection/dataStores/%s
+  credentials:
+    content: |
+      {
+      }
