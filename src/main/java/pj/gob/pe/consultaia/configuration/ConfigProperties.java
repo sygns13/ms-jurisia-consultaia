@@ -77,6 +77,10 @@ public class ConfigProperties {
     @Value("${gcp.vectorSearchLocation}")
     private String gcpVectorSearchLocation;
 
+    // Modelo Gemini de la Fase 1 (extracción de conceptos). El de la Fase 4 viene de BD.
+    @Value("${gcp.extractionModel}")
+    private String gcpExtractionModel;
+
     @Value("${gcp.embeddingModel}")
     private String gcpEmbeddingModel;
 
@@ -88,4 +92,8 @@ public class ConfigProperties {
 
     @Value("${gcp.deployedIndexId}")
     private String gcpDeployedIndexId;
+
+    // Opcional: si se setea, se evita el GET de metadata para resolver el dominio del Index Endpoint.
+    @Value("${gcp.vectorSearchPublicDomain:}")
+    private String gcpVectorSearchPublicDomain;
 }

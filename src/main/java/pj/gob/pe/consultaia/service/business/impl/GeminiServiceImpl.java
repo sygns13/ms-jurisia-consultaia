@@ -17,6 +17,7 @@ import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.vertexai.Transport;
 import com.google.cloud.vertexai.VertexAI;
 import com.google.cloud.vertexai.api.GenerationConfig;
+import com.google.cloud.vertexai.api.GenerationConfig.ThinkingConfig;
 import com.google.cloud.vertexai.api.PredictionServiceClient;
 import com.google.cloud.vertexai.api.PredictionServiceSettings;
 import com.google.cloud.vertexai.generativeai.ContentMaker;
@@ -76,6 +77,20 @@ public class GeminiServiceImpl implements GeminiService {
     private final ChunkStoreService chunkStoreService;
 
     private final ObjectMapper mapper = new ObjectMapper();
+
+    /**
+     * Cache en memoria del dominio público del Index Endpoint (resuelto vía metadata REST).
+     * Se calcula una sola vez tras el arranque y se reutiliza; evita un GET por calificación.
+     * Solo se usa cuando {@code gcp.vectorSearchPublicDomain} no está configurado en properties.
+     */
+    private volatile String publicDomainCache;
+
+    /**
+     * Credenciales cacheadas a nivel de servicio (singleton). El token OAuth (TTL ~1h) se reutiliza
+     * entre calificaciones; {@code refreshIfExpired()} solo va a la red cuando realmente expiró,
+     * evitando el round-trip de firma JWT + intercambio de token en cada request.
+     */
+    private volatile GoogleCredentials cachedCredentials;
 
     private static final String SERVICE_CODE = "geminy_demanda_1";
     private static final String KAFKA_TOPIC = "judicial-metrics-califications";
@@ -255,9 +270,8 @@ public class GeminiServiceImpl implements GeminiService {
      */
     private String invocarGemini(byte[] pdfBytes, Configurations configurations) throws IOException {
 
-        GoogleCredentials credentials = GoogleCredentials.fromStream(
-                new ByteArrayInputStream(properties.getGcpCredentialsContent().getBytes(StandardCharsets.UTF_8))
-        ).createScoped(Collections.singletonList(properties.getGcpScoped()));
+        // Credenciales cacheadas: el token se reutiliza entre calificaciones hasta que expira.
+        GoogleCredentials credentials = getCredentials();
 
         // Transporte compartido (proxy del Poder Judicial) entre el SDK de Gemini y el REST crudo.
         NetHttpTransport httpTransport = buildHttpTransport();
@@ -309,27 +323,40 @@ public class GeminiServiceImpl implements GeminiService {
 
             // ============================================================
             // FASE 1: EXTRACCIÓN DE INTENCIÓN (conceptos jurídicos clave)
+            // Modelo Flash + thinking desactivado: es un paso de RECUPERACIÓN, no el análisis
+            // final, por lo que se prioriza velocidad y costo. La Fase 4 mantiene su capacidad.
             // ============================================================
-            GenerativeModel modeloExtraccion = new GenerativeModel(configurations.getModel(), vertexAI)
-                    .withGenerationConfig(GenerationConfig.newBuilder().setTemperature(0.0f).build());
+            long tFase1Ini = System.nanoTime();
+            GenerativeModel modeloExtraccion = new GenerativeModel(properties.getGcpExtractionModel(), vertexAI)
+                    .withGenerationConfig(GenerationConfig.newBuilder()
+                            .setTemperature(0.0f)
+                            .setThinkingConfig(ThinkingConfig.newBuilder()
+                                    .setThinkingBudget(0) // sin razonamiento: extracción simple de keywords
+                                    .setIncludeThoughts(false)
+                                    .build())
+                            .build());
 
             String terminosClave = ResponseHandler.getText(
                     modeloExtraccion.generateContent(
                             ContentMaker.fromMultiModalData(documentPart, PROMPT_EXTRACCION_CONCEPTOS))
             );
+            long tFase1Fin = System.nanoTime();
 
             // ============================================================
             // FASE 2: GENERACIÓN DE EMBEDDINGS (REST)
             // ============================================================
             List<Double> vectorConsulta = generarEmbedding(httpTransport, accessToken, terminosClave);
+            long tFase2Fin = System.nanoTime();
 
             // ============================================================
             // FASE 3: BÚSQUEDA VECTORIAL (Vector Search findNeighbors REST)
             // ============================================================
             List<String> idsRecuperados = buscarVecinos(httpTransport, accessToken, vectorConsulta);
+            long tFase3Fin = System.nanoTime();
 
             // ============================================================
             // FASE 4: GENERACIÓN FINAL (resolución de calificación, configurada desde BD)
+            // Modelo, roleSystem, promptDefault, temperature y maxOutputTokens de BD. Capacidad SIN cambios.
             // ============================================================
             String contextoLeyes = chunkStoreService.construirContextoLegal(idsRecuperados);
 
@@ -357,10 +384,45 @@ public class GeminiServiceImpl implements GeminiService {
                     configurations.getPromptDefault(), contextoLeyes
             );
 
-            return ResponseHandler.getText(
+            String resolucionFinal = ResponseHandler.getText(
                     modeloFinal.generateContent(ContentMaker.fromMultiModalData(documentPart, promptEnriquecido))
             );
+            long tFase4Fin = System.nanoTime();
+
+            logger.info("[Calificación tiempos] Fase1(extracción {})={}s | Fase2(embedding)={}s | " +
+                            "Fase3(vectorSearch)={}s | Fase4(redacción {})={}s | Total IA={}s",
+                    properties.getGcpExtractionModel(), seg(tFase1Ini, tFase1Fin), seg(tFase1Fin, tFase2Fin),
+                    seg(tFase2Fin, tFase3Fin), configurations.getModel(), seg(tFase3Fin, tFase4Fin),
+                    seg(tFase1Ini, tFase4Fin));
+
+            return resolucionFinal;
         }
+    }
+
+    /**
+     * Devuelve las credenciales cacheadas a nivel de servicio. Se construyen una sola vez desde el
+     * JSON del service account; el token OAuth se refresca bajo demanda vía {@code refreshIfExpired()}
+     * en el llamador, reutilizándose entre calificaciones.
+     */
+    private GoogleCredentials getCredentials() throws IOException {
+        GoogleCredentials c = cachedCredentials;
+        if (c == null) {
+            synchronized (this) {
+                c = cachedCredentials;
+                if (c == null) {
+                    c = GoogleCredentials.fromStream(
+                            new ByteArrayInputStream(properties.getGcpCredentialsContent().getBytes(StandardCharsets.UTF_8))
+                    ).createScoped(Collections.singletonList(properties.getGcpScoped()));
+                    cachedCredentials = c;
+                }
+            }
+        }
+        return c;
+    }
+
+    /** Formatea el lapso entre dos marcas de System.nanoTime() en segundos con 2 decimales. */
+    private String seg(long fromNanos, long toNanos) {
+        return String.format("%.2f", (toNanos - fromNanos) / 1_000_000_000.0);
     }
 
     // ====================================================================
@@ -435,16 +497,45 @@ public class GeminiServiceImpl implements GeminiService {
     }
 
     /**
-     * Obtiene el publicEndpointDomainName del index endpoint. Para endpoints públicos,
-     * findNeighbors debe invocarse contra ese dominio; si no hay (endpoint privado/VPC),
+     * Resuelve el dominio contra el que debe invocarse findNeighbors. Para endpoints públicos,
+     * la búsqueda debe ir al publicEndpointDomainName dedicado; si no hay (endpoint privado/VPC),
      * se cae al endpoint regional estándar.
+     *
+     * Estrategia híbrida para evitar un GET de metadata por cada calificación:
+     *  1. Si {@code gcp.vectorSearchPublicDomain} está configurado en properties, se usa directo
+     *     (cero round-trips).
+     *  2. Si no, se resuelve vía metadata una sola vez y se cachea en memoria ({@link #publicDomainCache}).
      */
     private String resolverDominioFindNeighbors(NetHttpTransport httpTransport, String accessToken,
                                                 String indexEndpointResource) throws IOException {
-        String regionalBase = "https://" + properties.getGcpVectorSearchLocation() + "-aiplatform.googleapis.com";
-        JsonNode resp = ejecutarGet(httpTransport, accessToken, regionalBase + "/v1/" + indexEndpointResource);
-        String publicDomain = resp.path("publicEndpointDomainName").asText("");
-        return publicDomain.isEmpty() ? regionalBase : "https://" + publicDomain;
+        // 1) Dominio configurado explícitamente: se usa sin llamar a GCP.
+        String configurado = properties.getGcpVectorSearchPublicDomain();
+        if (configurado != null && !configurado.isBlank()) {
+            return normalizarDominio(configurado);
+        }
+
+        // 2) Cache en memoria: solo la primera calificación tras el arranque hace el GET de metadata.
+        if (publicDomainCache != null) {
+            return publicDomainCache;
+        }
+        synchronized (this) {
+            if (publicDomainCache == null) {
+                String regionalBase = "https://" + properties.getGcpVectorSearchLocation() + "-aiplatform.googleapis.com";
+                JsonNode resp = ejecutarGet(httpTransport, accessToken, regionalBase + "/v1/" + indexEndpointResource);
+                String publicDomain = resp.path("publicEndpointDomainName").asText("");
+                publicDomainCache = publicDomain.isEmpty() ? regionalBase : "https://" + publicDomain;
+            }
+        }
+        return publicDomainCache;
+    }
+
+    /**
+     * Antepone el esquema https:// al dominio si viene sin él, de modo que en properties se pueda
+     * configurar tanto "xxxx.us-central1-123.vdb.vertexai.goog" como la URL completa.
+     */
+    private String normalizarDominio(String dominio) {
+        String d = dominio.trim();
+        return (d.startsWith("http://") || d.startsWith("https://")) ? d : "https://" + d;
     }
 
     // ====================================================================
