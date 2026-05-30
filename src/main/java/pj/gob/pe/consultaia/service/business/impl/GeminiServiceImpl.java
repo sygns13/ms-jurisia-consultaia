@@ -40,6 +40,7 @@ import pj.gob.pe.consultaia.model.entities.DemandasCalificadas;
 import pj.gob.pe.consultaia.service.business.ChunkStoreService;
 import pj.gob.pe.consultaia.service.business.GeminiService;
 import pj.gob.pe.consultaia.service.externals.FtpService;
+import pj.gob.pe.consultaia.service.externals.GcsStorageService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.Constantes;
 import pj.gob.pe.consultaia.utils.DocxGeneratorUtil;
@@ -75,6 +76,7 @@ public class GeminiServiceImpl implements GeminiService {
     private final ConfigProperties properties;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final ChunkStoreService chunkStoreService;
+    private final GcsStorageService gcsStorageService;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -312,6 +314,13 @@ public class GeminiServiceImpl implements GeminiService {
 
         PredictionServiceSettings predictionSettings = settingsBuilder.build();
 
+        // El PDF se sube UNA sola vez a GCS; ambas fases lo referencian por URI (gs://) para que
+        // Vertex lo lea server-side y no reenviar los bytes por el proxy. Se borra al finalizar.
+        long tGcsIni = System.nanoTime();
+        String gsUri = gcsStorageService.subir(pdfBytes, "application/pdf");
+        long tGcsFin = System.nanoTime();
+
+        try {
         try (VertexAI vertexAI = new VertexAI.Builder()
                 .setProjectId(properties.getGcpProjectId())
                 .setLocation(properties.getGcpLocationGlobal())
@@ -327,7 +336,7 @@ public class GeminiServiceImpl implements GeminiService {
                 })
                 .build()) {
 
-            var documentPart = PartMaker.fromMimeTypeAndData("application/pdf", pdfBytes);
+            var documentPart = PartMaker.fromMimeTypeAndData("application/pdf", gsUri);
 
             // ============================================================
             // FASE 1: EXTRACCIÓN DE INTENCIÓN (conceptos jurídicos clave)
@@ -397,13 +406,20 @@ public class GeminiServiceImpl implements GeminiService {
             );
             long tFase4Fin = System.nanoTime();
 
-            logger.info("[Calificación tiempos] Fase1(extracción {})={}s | Fase2(embedding)={}s | " +
+            logger.info("[Calificación tiempos] GCS-upload={}s | Fase1(extracción {})={}s | Fase2(embedding)={}s | " +
                             "Fase3(vectorSearch)={}s | Fase4(redacción {})={}s | Total IA={}s",
-                    properties.getGcpExtractionModel(), seg(tFase1Ini, tFase1Fin), seg(tFase1Fin, tFase2Fin),
-                    seg(tFase2Fin, tFase3Fin), configurations.getModel(), seg(tFase3Fin, tFase4Fin),
-                    seg(tFase1Ini, tFase4Fin));
+                    seg(tGcsIni, tGcsFin), properties.getGcpExtractionModel(), seg(tFase1Ini, tFase1Fin),
+                    seg(tFase1Fin, tFase2Fin), seg(tFase2Fin, tFase3Fin), configurations.getModel(),
+                    seg(tFase3Fin, tFase4Fin), seg(tGcsIni, tFase4Fin));
 
             return resolucionFinal;
+        }
+        } finally {
+            try {
+                gcsStorageService.borrar(gsUri);
+            } catch (Exception ex) {
+                logger.warn("[GCS] No se pudo borrar el objeto temporal {}: {}", gsUri, ex.getMessage());
+            }
         }
     }
 

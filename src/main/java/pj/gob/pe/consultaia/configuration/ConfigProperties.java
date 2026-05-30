@@ -96,4 +96,11 @@ public class ConfigProperties {
     // Opcional: si se setea, se evita el GET de metadata para resolver el dominio del Index Endpoint.
     @Value("${gcp.vectorSearchPublicDomain:}")
     private String gcpVectorSearchPublicDomain;
+
+    // GCS: el PDF se sube aquí una vez y se referencia por URI gs:// en las llamadas a Gemini.
+    @Value("${gcp.gcsBucket}")
+    private String gcpGcsBucket;
+
+    @Value("${gcp.gcsObjectPrefix}")
+    private String gcpGcsObjectPrefix;
 }

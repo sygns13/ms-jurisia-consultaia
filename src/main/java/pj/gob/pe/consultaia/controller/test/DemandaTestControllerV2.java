@@ -35,6 +35,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.threeten.bp.Duration;
 import pj.gob.pe.consultaia.configuration.ConfigProperties;
 import pj.gob.pe.consultaia.service.business.ChunkStoreService;
+import pj.gob.pe.consultaia.service.externals.GcsStorageService;
 import pj.gob.pe.consultaia.utils.beans.responses.ApiResponse;
 
 import java.io.ByteArrayInputStream;
@@ -108,10 +109,13 @@ public class DemandaTestControllerV2 {
 
     private final ConfigProperties properties;
     private final ChunkStoreService chunkStoreService;
+    private final GcsStorageService gcsStorageService;
 
-    public DemandaTestControllerV2(ConfigProperties properties, ChunkStoreService chunkStoreService) {
+    public DemandaTestControllerV2(ConfigProperties properties, ChunkStoreService chunkStoreService,
+                                   GcsStorageService gcsStorageService) {
         this.properties = properties;
         this.chunkStoreService = chunkStoreService;
+        this.gcsStorageService = gcsStorageService;
     }
 
     @PostMapping(value = "/analizar-demanda-v2")
@@ -160,7 +164,14 @@ public class DemandaTestControllerV2 {
 
                 PredictionServiceSettings geminiSettings = geminiSettingsBuilder.build();
 
+                // El PDF se sube UNA sola vez a GCS; ambas fases lo referencian por URI (gs://) para que
+                // Vertex lo lea server-side y no reenviar los bytes por el proxy. Se borra al finalizar.
+                long tGcsIni = System.nanoTime();
+                String gsUri = gcsStorageService.subir(documentBytes, "application/pdf");
+                long tGcsFin = System.nanoTime();
+
                 // 2. INICIO DEL FLUJO ORQUESTADO
+                try {
                 try (VertexAI vertexAI = new VertexAI.Builder()
                         .setProjectId(projectId)
                         .setLocation(geminiLocation)
@@ -176,7 +187,7 @@ public class DemandaTestControllerV2 {
                         })
                         .build()) {
 
-                    var documentPart = PartMaker.fromMimeTypeAndData("application/pdf", documentBytes);
+                    var documentPart = PartMaker.fromMimeTypeAndData("application/pdf", gsUri);
 
                     // ============================================================
                     // FASE 1: EXTRACCIÓN DE INTENCIÓN (conceptos jurídicos clave)
@@ -244,14 +255,21 @@ public class DemandaTestControllerV2 {
                     );
                     long tFase4Fin = System.nanoTime();
 
-                    log.info("[V2 tiempos] Fase1(extracción {})={}s | Fase2(embedding)={}s | " +
+                    log.info("[V2 tiempos] GCS-upload={}s | Fase1(extracción {})={}s | Fase2(embedding)={}s | " +
                                     "Fase3(vectorSearch)={}s | Fase4(redacción {})={}s | Total={}s",
-                            extractionModel, seg(tFase1Ini, tFase1Fin), seg(tFase1Fin, tFase2Fin),
+                            seg(tGcsIni, tGcsFin), extractionModel, seg(tFase1Ini, tFase1Fin), seg(tFase1Fin, tFase2Fin),
                             seg(tFase2Fin, tFase3Fin), finalModel, seg(tFase3Fin, tFase4Fin),
                             seg(start, tFase4Fin));
 
                     double seconds = (System.nanoTime() - start) / 1_000_000_000.0;
                     return ResponseEntity.ok(ApiResponse.ok(resolucionFinal, seconds));
+                }
+                } finally {
+                    try {
+                        gcsStorageService.borrar(gsUri);
+                    } catch (Exception ex) {
+                        log.warn("[GCS] No se pudo borrar el objeto temporal {}: {}", gsUri, ex.getMessage());
+                    }
                 }
             } catch (Exception e) {
                 Throwable cause = e;
