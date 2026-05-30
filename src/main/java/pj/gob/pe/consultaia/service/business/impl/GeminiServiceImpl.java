@@ -270,6 +270,14 @@ public class GeminiServiceImpl implements GeminiService {
      */
     private String invocarGemini(byte[] pdfBytes, Configurations configurations) throws IOException {
 
+        // Diagnóstico: tamaño del PDF y estimación de bytes en el cable. El PDF se incrusta inline
+        // en base64 (~+33%) y se envía DOS veces (Fase 1 + Fase 4); este es el factor dominante de
+        // latencia cuando el egress pasa por un proxy de bajo throughput.
+        double pdfMb = pdfBytes.length / (1024.0 * 1024.0);
+        logger.info("[Calificación diagnóstico] PDF={} bytes (~{} MB) | inline base64 ~{} MB por envío x2 (Fase1+Fase4) ~{} MB",
+                pdfBytes.length, String.format("%.2f", pdfMb),
+                String.format("%.2f", pdfMb * 4.0 / 3.0), String.format("%.2f", pdfMb * 4.0 / 3.0 * 2));
+
         // Credenciales cacheadas: el token se reutiliza entre calificaciones hasta que expira.
         GoogleCredentials credentials = getCredentials();
 

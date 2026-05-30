@@ -85,7 +85,7 @@ public class DemandaTestControllerV2 {
     // y Pro para la REDACCIÓN final (Fase 4, máxima calidad). La Fase 4 NO cambia su capacidad.
     // NOTA: confirmar que el ID de Flash exista en el proyecto/región; ajustar si difiere.
     private final String extractionModel = "gemini-3.5-flash";
-    private final String finalModel = "gemini-2.5-pro";
+    private final String finalModel = "gemini-3.1-pro-preview";
 
     private final String embeddingModel = "text-multilingual-embedding-002";
     private final int neighborCount = 15; // Artículos más relevantes a recuperar
@@ -124,6 +124,12 @@ public class DemandaTestControllerV2 {
         return () -> {
             long start = System.nanoTime();
             try {
+                // Diagnóstico: tamaño del PDF y estimación de bytes en el cable (inline base64 ~+33%, x2).
+                double pdfMb = documentBytes.length / (1024.0 * 1024.0);
+                log.info("[V2 diagnóstico] PDF={} bytes (~{} MB) | inline base64 ~{} MB por envío x2 (Fase1+Fase4) ~{} MB",
+                        documentBytes.length, String.format("%.2f", pdfMb),
+                        String.format("%.2f", pdfMb * 4.0 / 3.0), String.format("%.2f", pdfMb * 4.0 / 3.0 * 2));
+
                 // 1. CREDENCIALES Y TRANSPORTE (proxy compartido por SDK Gemini y REST crudo)
                 // Credenciales cacheadas: el token se reutiliza entre requests hasta que expira.
                 GoogleCredentials credentials = getCredentials();
