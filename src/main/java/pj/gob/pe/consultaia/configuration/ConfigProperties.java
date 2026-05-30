@@ -72,4 +72,20 @@ public class ConfigProperties {
 
     @Value("${gcp.datastorePath}")
     private String gcpDatastorePath;
+
+    // --- RAG Orquestado (Vector Search) para la calificación de demandas ---
+    @Value("${gcp.vectorSearchLocation}")
+    private String gcpVectorSearchLocation;
+
+    @Value("${gcp.embeddingModel}")
+    private String gcpEmbeddingModel;
+
+    @Value("${gcp.neighborCount}")
+    private Integer gcpNeighborCount;
+
+    @Value("${gcp.indexEndpointId}")
+    private String gcpIndexEndpointId;
+
+    @Value("${gcp.deployedIndexId}")
+    private String gcpDeployedIndexId;
 }

@@ -1,19 +1,24 @@
 package pj.gob.pe.consultaia.service.business.impl;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.api.client.http.ByteArrayContent;
+import com.google.api.client.http.GenericUrl;
+import com.google.api.client.http.HttpHeaders;
+import com.google.api.client.http.HttpRequest;
+import com.google.api.client.http.HttpRequestFactory;
+import com.google.api.client.http.HttpResponse;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.gax.core.FixedCredentialsProvider;
 import com.google.api.gax.retrying.RetrySettings;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.vertexai.Transport;
 import com.google.cloud.vertexai.VertexAI;
-import com.google.cloud.vertexai.api.Content;
-import com.google.cloud.vertexai.api.GenerateContentResponse;
 import com.google.cloud.vertexai.api.GenerationConfig;
 import com.google.cloud.vertexai.api.PredictionServiceClient;
 import com.google.cloud.vertexai.api.PredictionServiceSettings;
-import com.google.cloud.vertexai.api.Retrieval;
-import com.google.cloud.vertexai.api.Tool;
-import com.google.cloud.vertexai.api.VertexAISearch;
 import com.google.cloud.vertexai.generativeai.ContentMaker;
 import com.google.cloud.vertexai.generativeai.GenerativeModel;
 import com.google.cloud.vertexai.generativeai.PartMaker;
@@ -31,6 +36,7 @@ import pj.gob.pe.consultaia.exception.ValidationServiceException;
 import pj.gob.pe.consultaia.exception.ValidationSessionServiceException;
 import pj.gob.pe.consultaia.model.entities.Configurations;
 import pj.gob.pe.consultaia.model.entities.DemandasCalificadas;
+import pj.gob.pe.consultaia.service.business.ChunkStoreService;
 import pj.gob.pe.consultaia.service.business.GeminiService;
 import pj.gob.pe.consultaia.service.externals.FtpService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
@@ -49,8 +55,10 @@ import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -65,9 +73,22 @@ public class GeminiServiceImpl implements GeminiService {
     private final FtpService ftpService;
     private final ConfigProperties properties;
     private final KafkaTemplate<String, Object> kafkaTemplate;
+    private final ChunkStoreService chunkStoreService;
+
+    private final ObjectMapper mapper = new ObjectMapper();
 
     private static final String SERVICE_CODE = "geminy_demanda_1";
     private static final String KAFKA_TOPIC = "judicial-metrics-califications";
+
+    /**
+     * Prompt interno (Fase 1) para que Gemini extraiga los conceptos jurídicos clave de la
+     * demanda. Estos términos alimentan la búsqueda vectorial; no proviene de la BD porque
+     * es parte del mecanismo RAG, no de la configuración funcional de la calificación.
+     */
+    private static final String PROMPT_EXTRACCION_CONCEPTOS =
+            "Lee esta demanda adjunta. Extrae ÚNICAMENTE una lista de los conceptos " +
+            "jurídicos procesales involucrados, el tipo de proceso, y las posibles omisiones de forma. " +
+            "Responde solo con palabras clave separadas por comas, sin explicaciones.";
 
     @Override
     public ResponseCalificacionDemanda calificarDemanda(InputCalificacionDemanda input, String sessionId) throws Exception {
@@ -218,11 +239,32 @@ public class GeminiServiceImpl implements GeminiService {
         }
     }
 
+    /**
+     * Calificación de la demanda mediante RAG Orquestado (REST puro), sin Data Store.
+     *
+     * Flujo:
+     *  Fase 1 - Gemini extrae los conceptos jurídicos clave de la demanda (SDK Vertex AI, REST).
+     *  Fase 2 - Se generan embeddings de esos conceptos (Vertex AI Prediction REST).
+     *  Fase 3 - Búsqueda vectorial en el índice de normativa (Vector Search findNeighbors REST).
+     *  Fase 4 - Gemini redacta la resolución de calificación con la normativa recuperada, usando
+     *           el modelo, roleSystem, promptDefault, temperature y maxOutputTokens de la BD.
+     *
+     * Nota de transporte: Embeddings y Vector Search se invocan por REST crudo (no GAPIC) porque
+     * en google-cloud-aiplatform MatchServiceSettings/PredictionServiceSettings (v1) solo exponen
+     * transporte gRPC. El REST crudo reutiliza el mismo NetHttpTransport con proxy del SDK de Gemini.
+     */
     private String invocarGemini(byte[] pdfBytes, Configurations configurations) throws IOException {
 
         GoogleCredentials credentials = GoogleCredentials.fromStream(
                 new ByteArrayInputStream(properties.getGcpCredentialsContent().getBytes(StandardCharsets.UTF_8))
         ).createScoped(Collections.singletonList(properties.getGcpScoped()));
+
+        // Transporte compartido (proxy del Poder Judicial) entre el SDK de Gemini y el REST crudo.
+        NetHttpTransport httpTransport = buildHttpTransport();
+
+        // Token de acceso para las llamadas REST crudas (Embeddings y Vector Search).
+        credentials.refreshIfExpired();
+        String accessToken = credentials.getAccessToken().getTokenValue();
 
         PredictionServiceSettings.Builder settingsBuilder = PredictionServiceSettings.newHttpJsonBuilder();
         settingsBuilder.setEndpoint(properties.getGcpEndpoint());
@@ -238,12 +280,10 @@ public class GeminiServiceImpl implements GeminiService {
                 .build();
         settingsBuilder.generateContentSettings().setRetrySettings(retry);
 
-        if (Boolean.TRUE.equals(properties.getProxyEnabled())) {
-            Proxy proxy = new Proxy(Proxy.Type.HTTP,
-                    new InetSocketAddress(properties.getProxyURL(), properties.getProxyPort()));
+        if (httpTransport != null) {
             settingsBuilder.setTransportChannelProvider(
                     PredictionServiceSettings.defaultHttpJsonTransportProviderBuilder()
-                            .setHttpTransport(new NetHttpTransport.Builder().setProxy(proxy).build())
+                            .setHttpTransport(httpTransport)
                             .build()
             );
         }
@@ -265,18 +305,33 @@ public class GeminiServiceImpl implements GeminiService {
                 })
                 .build()) {
 
-            String datastorePath = String.format(
-                    properties.getGcpDatastorePath(),
-                    properties.getGcpProjectId(),
-                    properties.getGcpDataStoreId());
+            var documentPart = PartMaker.fromMimeTypeAndData("application/pdf", pdfBytes);
 
-            VertexAISearch vertexAiSearch = VertexAISearch.newBuilder().setDatastore(datastorePath).build();
-            Retrieval retrieval = Retrieval.newBuilder().setVertexAiSearch(vertexAiSearch).build();
-            Tool herramientaLeyes = Tool.newBuilder().setRetrieval(retrieval).build();
+            // ============================================================
+            // FASE 1: EXTRACCIÓN DE INTENCIÓN (conceptos jurídicos clave)
+            // ============================================================
+            GenerativeModel modeloExtraccion = new GenerativeModel(configurations.getModel(), vertexAI)
+                    .withGenerationConfig(GenerationConfig.newBuilder().setTemperature(0.0f).build());
 
-            GenerativeModel model = new GenerativeModel(configurations.getModel(), vertexAI)
-                    .withSystemInstruction(ContentMaker.fromString(configurations.getRoleSystem()))
-                    .withTools(java.util.Arrays.asList(herramientaLeyes));
+            String terminosClave = ResponseHandler.getText(
+                    modeloExtraccion.generateContent(
+                            ContentMaker.fromMultiModalData(documentPart, PROMPT_EXTRACCION_CONCEPTOS))
+            );
+
+            // ============================================================
+            // FASE 2: GENERACIÓN DE EMBEDDINGS (REST)
+            // ============================================================
+            List<Double> vectorConsulta = generarEmbedding(httpTransport, accessToken, terminosClave);
+
+            // ============================================================
+            // FASE 3: BÚSQUEDA VECTORIAL (Vector Search findNeighbors REST)
+            // ============================================================
+            List<String> idsRecuperados = buscarVecinos(httpTransport, accessToken, vectorConsulta);
+
+            // ============================================================
+            // FASE 4: GENERACIÓN FINAL (resolución de calificación, configurada desde BD)
+            // ============================================================
+            String contextoLeyes = chunkStoreService.construirContextoLegal(idsRecuperados);
 
             float temperatureValue = configurations.getTemperature() != null
                     ? configurations.getTemperature().floatValue()
@@ -290,13 +345,152 @@ public class GeminiServiceImpl implements GeminiService {
                     .setMaxOutputTokens(maxOutputTokens)
                     .build();
 
-            GenerativeModel configuredModel = model.withGenerationConfig(generationConfig);
+            GenerativeModel modeloFinal = new GenerativeModel(configurations.getModel(), vertexAI)
+                    .withSystemInstruction(ContentMaker.fromString(configurations.getRoleSystem()))
+                    .withGenerationConfig(generationConfig);
 
-            var documentPart = PartMaker.fromMimeTypeAndData("application/pdf", pdfBytes);
-            Content inputContent = ContentMaker.fromMultiModalData(documentPart, configurations.getPromptDefault());
+            String promptEnriquecido = String.format(
+                    "INSTRUCCIONES DEL JUZGADO:%n%s%n%n" +
+                            "NORMATIVA LEGAL ESTRICTA A APLICAR:%n%s%n%n" +
+                            "TAREA:%nAnaliza el documento PDF adjunto basándote exclusivamente en la normativa " +
+                            "proporcionada y redacta la resolución de calificación de demanda.",
+                    configurations.getPromptDefault(), contextoLeyes
+            );
 
-            GenerateContentResponse response = configuredModel.generateContent(inputContent);
-            return ResponseHandler.getText(response);
+            return ResponseHandler.getText(
+                    modeloFinal.generateContent(ContentMaker.fromMultiModalData(documentPart, promptEnriquecido))
+            );
+        }
+    }
+
+    // ====================================================================
+    // FASE 2 - Embeddings vía REST
+    // ====================================================================
+    private List<Double> generarEmbedding(NetHttpTransport httpTransport, String accessToken, String texto)
+            throws IOException {
+        String location = properties.getGcpVectorSearchLocation();
+        String url = String.format(
+                "https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:predict",
+                location, properties.getGcpProjectId(), location, properties.getGcpEmbeddingModel());
+
+        ObjectNode instance = mapper.createObjectNode();
+        instance.put("content", texto);
+        instance.put("task_type", "RETRIEVAL_QUERY"); // embedding del lado de la consulta
+
+        ObjectNode body = mapper.createObjectNode();
+        body.putArray("instances").add(instance);
+
+        JsonNode resp = ejecutarPost(httpTransport, accessToken, url, mapper.writeValueAsString(body));
+
+        JsonNode values = resp.path("predictions").path(0).path("embeddings").path("values");
+        if (!values.isArray() || values.isEmpty()) {
+            throw new IOException("Respuesta de embeddings sin valores: " + resp.toString());
+        }
+        List<Double> vector = new ArrayList<>(values.size());
+        for (JsonNode v : values) {
+            vector.add(v.asDouble());
+        }
+        return vector;
+    }
+
+    // ====================================================================
+    // FASE 3 - Vector Search (findNeighbors) vía REST
+    // ====================================================================
+    private List<String> buscarVecinos(NetHttpTransport httpTransport, String accessToken, List<Double> vectorConsulta)
+            throws IOException {
+        String indexEndpointResource = String.format(
+                "projects/%s/locations/%s/indexEndpoints/%s",
+                properties.getGcpProjectId(), properties.getGcpVectorSearchLocation(), properties.getGcpIndexEndpointId());
+
+        // findNeighbors debe llamarse contra el dominio público del index endpoint (si existe).
+        String base = resolverDominioFindNeighbors(httpTransport, accessToken, indexEndpointResource);
+        String url = base + "/v1/" + indexEndpointResource + ":findNeighbors";
+
+        ObjectNode datapoint = mapper.createObjectNode();
+        ArrayNode featureVector = datapoint.putArray("featureVector");
+        for (Double d : vectorConsulta) {
+            featureVector.add(d);
+        }
+
+        ObjectNode query = mapper.createObjectNode();
+        query.set("datapoint", datapoint);
+        query.put("neighborCount", properties.getGcpNeighborCount());
+
+        ObjectNode body = mapper.createObjectNode();
+        body.put("deployedIndexId", properties.getGcpDeployedIndexId());
+        body.putArray("queries").add(query);
+
+        JsonNode resp = ejecutarPost(httpTransport, accessToken, url, mapper.writeValueAsString(body));
+
+        List<String> ids = new ArrayList<>();
+        for (JsonNode grupo : resp.path("nearestNeighbors")) {
+            for (JsonNode vecino : grupo.path("neighbors")) {
+                String id = vecino.path("datapoint").path("datapointId").asText("");
+                if (!id.isEmpty()) {
+                    ids.add(id);
+                }
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * Obtiene el publicEndpointDomainName del index endpoint. Para endpoints públicos,
+     * findNeighbors debe invocarse contra ese dominio; si no hay (endpoint privado/VPC),
+     * se cae al endpoint regional estándar.
+     */
+    private String resolverDominioFindNeighbors(NetHttpTransport httpTransport, String accessToken,
+                                                String indexEndpointResource) throws IOException {
+        String regionalBase = "https://" + properties.getGcpVectorSearchLocation() + "-aiplatform.googleapis.com";
+        JsonNode resp = ejecutarGet(httpTransport, accessToken, regionalBase + "/v1/" + indexEndpointResource);
+        String publicDomain = resp.path("publicEndpointDomainName").asText("");
+        return publicDomain.isEmpty() ? regionalBase : "https://" + publicDomain;
+    }
+
+    // ====================================================================
+    // Utilidades REST (HTTP crudo con NetHttpTransport + proxy + Bearer token)
+    // ====================================================================
+    private NetHttpTransport buildHttpTransport() {
+        if (Boolean.TRUE.equals(properties.getProxyEnabled())) {
+            Proxy proxy = new Proxy(Proxy.Type.HTTP,
+                    new InetSocketAddress(properties.getProxyURL(), properties.getProxyPort()));
+            return new NetHttpTransport.Builder().setProxy(proxy).build();
+        }
+        return new NetHttpTransport.Builder().build();
+    }
+
+    private JsonNode ejecutarPost(NetHttpTransport httpTransport, String accessToken, String url, String jsonBody)
+            throws IOException {
+        HttpRequestFactory factory = httpTransport.createRequestFactory();
+        HttpRequest request = factory.buildPostRequest(
+                new GenericUrl(url),
+                new ByteArrayContent("application/json", jsonBody.getBytes(StandardCharsets.UTF_8)));
+        return ejecutar(request, accessToken, url);
+    }
+
+    private JsonNode ejecutarGet(NetHttpTransport httpTransport, String accessToken, String url) throws IOException {
+        HttpRequestFactory factory = httpTransport.createRequestFactory();
+        HttpRequest request = factory.buildGetRequest(new GenericUrl(url));
+        return ejecutar(request, accessToken, url);
+    }
+
+    private JsonNode ejecutar(HttpRequest request, String accessToken, String url) throws IOException {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setAuthorization("Bearer " + accessToken);
+        request.setHeaders(headers);
+        request.setConnectTimeout(60_000);
+        request.setReadTimeout(120_000);
+        request.setThrowExceptionOnExecuteError(false);
+
+        HttpResponse response = request.execute();
+        try {
+            if (response.getStatusCode() >= 300) {
+                throw new IOException("Error REST " + response.getStatusCode()
+                        + " en " + url + ": " + response.parseAsString());
+            }
+            return mapper.readTree(response.getContent());
+        } finally {
+            response.disconnect();
         }
     }
 }
