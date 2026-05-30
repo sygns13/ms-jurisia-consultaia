@@ -37,7 +37,7 @@ import java.util.concurrent.Callable;
 @RequestMapping("/api/v1/chat")
 public class ChatTestMultimodalController {
 
-    private final String projectId = "gen-lang-client-0987988254";
+    private final String projectId = "apubot-v1";
     private final String location = "global";
 
     private final ConfigProperties properties;
@@ -109,7 +109,7 @@ public class ChatTestMultimodalController {
                         })
                         .build()) {
 
-                    GenerativeModel model = new GenerativeModel("gemini-3.1-pro-preview", vertexAI)
+                    GenerativeModel model = new GenerativeModel("gemini-3.5-flash", vertexAI)
                             .withSystemInstruction(ContentMaker.fromString(
                                     "Eres un abogado experto en derecho peruano con amplia experiencia en legislación, normativas y jurisprudencia en áreas como derecho penal, civil, constitucional, laboral y empresarial. Respondes preguntas legales de manera clara y precisa, citando leyes y artículos relevantes del Código Civil, Código Penal, Constitución Política del Perú y demás normativas vigentes. No das consejos legales definitivos, pero brindas información detallada y explicas los procedimientos legales aplicables. Adicionalmente solo respondes consultas asociadas a temáticas legales, jurídicas o relacionados, en otros casos respondes amablemente que no atiendes esas clases de consultas."
                             ));
