@@ -76,7 +76,7 @@ public class DemandaTestControllerV2 {
 
     // IDs obtenidos de la consola de Google Cloud (Vector Search)
     private final String indexEndpointId = "4248471148284608512";
-    private final String deployedIndexId = "pj_normativa_deploy_1_1780024396444";
+    private final String deployedIndexId = "pj_normativa_deploy_1_1780191746804";
 
     // Dominio público del Index Endpoint. Opcional: si se deja vacío, se resuelve y cachea
     // automáticamente en la primera consulta. Setearlo evita incluso ese primer GET de metadata.
