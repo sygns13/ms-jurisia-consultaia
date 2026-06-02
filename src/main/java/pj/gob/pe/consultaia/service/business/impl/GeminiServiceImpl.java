@@ -27,6 +27,8 @@ import com.google.cloud.vertexai.generativeai.ResponseHandler;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.threeten.bp.Duration;
@@ -45,8 +47,11 @@ import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.Constantes;
 import pj.gob.pe.consultaia.utils.DocxGeneratorUtil;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputCalificacionDemanda;
+import pj.gob.pe.consultaia.utils.beans.inputs.InputDescargaCalificacion;
+import pj.gob.pe.consultaia.utils.beans.inputs.InputListadoDemandasCalificadas;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseCalificacionDemanda;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseCalificacionDemandaDocx;
+import pj.gob.pe.consultaia.utils.beans.responses.ResponseListadoDemandaCalificada;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseLogin;
 
 import java.io.ByteArrayInputStream;
@@ -56,7 +61,9 @@ import java.math.RoundingMode;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -112,15 +119,7 @@ public class GeminiServiceImpl implements GeminiService {
 
         long start = System.nanoTime();
 
-        if (sessionId == null || sessionId.isEmpty()) {
-            throw new ValidationSessionServiceException("La sessión remitida es inválida");
-        }
-
-        ResponseLogin responseLogin = securityService.GetSessionData(sessionId);
-
-        if (responseLogin == null || !responseLogin.isSuccess() || !responseLogin.isItemFound() || responseLogin.getUser() == null) {
-            throw new ValidationSessionServiceException("La sessión remitida es inválida");
-        }
+        ResponseLogin responseLogin = validarSesion(sessionId);
 
         Map<String, Object> filters = new HashMap<>();
         filters.put("borrado", Constantes.REGISTRO_NO_BORRADO);
@@ -245,6 +244,79 @@ public class GeminiServiceImpl implements GeminiService {
         response.setNombreArchivo(nombreArchivo);
 
         return response;
+    }
+
+    @Override
+    public Page<ResponseListadoDemandaCalificada> listarDemandasCalificadas(InputListadoDemandasCalificadas input,
+                                                                            Pageable pageable,
+                                                                            String sessionId) throws Exception {
+
+        ResponseLogin responseLogin = validarSesion(sessionId);
+        Long userId = responseLogin.getUser().getIdUser();
+
+        InputListadoDemandasCalificadas filtros = input != null ? input : new InputListadoDemandasCalificadas();
+
+        // Los filtros llegan como fecha (yyyy-MM-dd) pero fechaSend es datetime: se expande el rango
+        // al inicio del día inicial y al fin del día final (ambos inclusive).
+        LocalDateTime fechaDesde = filtros.getFechaInicial() != null
+                ? filtros.getFechaInicial().atStartOfDay() : null;
+        LocalDateTime fechaHasta = filtros.getFechaFinal() != null
+                ? filtros.getFechaFinal().atTime(LocalTime.MAX) : null;
+
+        Page<DemandasCalificadas> pagina = demandasCalificadasDAO.listarPorFiltros(
+                userId, fechaDesde, fechaHasta, filtros.getAnio(), filtros.getExpNro(), pageable);
+
+        return pagina.map(ResponseListadoDemandaCalificada::fromEntity);
+    }
+
+    @Override
+    public ResponseCalificacionDemandaDocx descargarCalificacionDocx(InputDescargaCalificacion input, String sessionId) throws Exception {
+
+        ResponseLogin responseLogin = validarSesion(sessionId);
+        Long userId = responseLogin.getUser().getIdUser();
+
+        DemandasCalificadas demanda = demandasCalificadasDAO.listarPorId(input.getId());
+
+        if (demanda == null) {
+            throw new ValidationServiceException("No se encontró la calificación de demanda solicitada");
+        }
+
+        // La calificación solo puede ser descargada por el usuario propietario del registro.
+        if (demanda.getUserId() == null || !demanda.getUserId().equals(userId)) {
+            throw new ValidationSessionServiceException("La calificación de demanda no pertenece al usuario de la sesión");
+        }
+
+        byte[] docxBytes = DocxGeneratorUtil.textToDocx(demanda.getResponse());
+
+        String anio = demanda.getAnio() != null ? demanda.getAnio() : "0";
+        String expNro = demanda.getExpNro() != null ? demanda.getExpNro() : "0";
+        String id = demanda.getId() != null ? String.valueOf(demanda.getId()) : "0";
+
+        String nombreArchivo = String.format("calificacion_demanda_%s_%s_%s.docx", anio, expNro, id);
+
+        ResponseCalificacionDemandaDocx response = new ResponseCalificacionDemandaDocx();
+        response.setDocumento(docxBytes);
+        response.setNombreArchivo(nombreArchivo);
+
+        return response;
+    }
+
+    /**
+     * Valida la sesión contra el servicio de seguridad y devuelve los datos del usuario autenticado.
+     * Lanza {@link ValidationSessionServiceException} si la sesión es nula, vacía o inválida.
+     */
+    private ResponseLogin validarSesion(String sessionId) {
+        if (sessionId == null || sessionId.isEmpty()) {
+            throw new ValidationSessionServiceException("La sessión remitida es inválida");
+        }
+
+        ResponseLogin responseLogin = securityService.GetSessionData(sessionId);
+
+        if (responseLogin == null || !responseLogin.isSuccess() || !responseLogin.isItemFound() || responseLogin.getUser() == null) {
+            throw new ValidationSessionServiceException("La sessión remitida es inválida");
+        }
+
+        return responseLogin;
     }
 
     private void publicarKafka(DemandasCalificadas demanda) {
