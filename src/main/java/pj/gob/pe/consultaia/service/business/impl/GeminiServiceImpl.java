@@ -37,6 +37,7 @@ import pj.gob.pe.consultaia.dao.mysql.ConfigurationDAO;
 import pj.gob.pe.consultaia.dao.mysql.DemandasCalificadasDAO;
 import pj.gob.pe.consultaia.exception.ValidationServiceException;
 import pj.gob.pe.consultaia.exception.ValidationSessionServiceException;
+import pj.gob.pe.consultaia.model.beans.DemandasCalificadasToKafka;
 import pj.gob.pe.consultaia.model.entities.Configurations;
 import pj.gob.pe.consultaia.model.entities.DemandasCalificadas;
 import pj.gob.pe.consultaia.service.business.ChunkStoreService;
@@ -53,6 +54,7 @@ import pj.gob.pe.consultaia.utils.beans.responses.ResponseCalificacionDemanda;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseCalificacionDemandaDocx;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseListadoDemandaCalificada;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseLogin;
+import pj.gob.pe.consultaia.utils.beans.responses.UserLogin;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -180,7 +182,7 @@ public class GeminiServiceImpl implements GeminiService {
             } catch (Exception modErr) {
                 logger.error("Error actualizando DemandasCalificadas tras fallo FTP: {}", modErr.getMessage());
             }
-            //publicarKafka(demanda);
+            publicarKafka(demanda, responseLogin.getUser());
             double seconds = (System.nanoTime() - start) / 1_000_000_000.0;
             demanda.setTimeSeconds(seconds);
             throw new ValidationServiceException("No se pudo recuperar el archivo de la demanda desde FTP: " + ex.getMessage());
@@ -198,7 +200,7 @@ public class GeminiServiceImpl implements GeminiService {
             } catch (Exception modErr) {
                 logger.error("Error actualizando DemandasCalificadas tras fallo Gemini: {}", modErr.getMessage());
             }
-            //publicarKafka(demanda);
+            publicarKafka(demanda, responseLogin.getUser());
             throw new ValidationServiceException("Error en la calificación con Gemini: " + ex.getMessage());
         }
 
@@ -212,7 +214,7 @@ public class GeminiServiceImpl implements GeminiService {
 
         demanda = demandasCalificadasDAO.modificar(demanda);
 
-        //publicarKafka(demanda);
+        publicarKafka(demanda, responseLogin.getUser());
 
         ResponseCalificacionDemanda response = new ResponseCalificacionDemanda();
         response.setId(demanda.getId());
@@ -233,11 +235,8 @@ public class GeminiServiceImpl implements GeminiService {
 
         byte[] docxBytes = DocxGeneratorUtil.textToDocx(calificacion.getResponse());
 
-        String anio = input.getAnio() != null ? input.getAnio() : "0";
-        String expNro = input.getExpNro() != null ? input.getExpNro() : "0";
-        String id = calificacion.getId() != null ? String.valueOf(calificacion.getId()) : "0";
-
-        String nombreArchivo = String.format("calificacion_demanda_%s_%s_%s.docx", anio, expNro, id);
+        String expediente = input.getXformato() != null ? input.getXformato() : "";
+        String nombreArchivo = String.format("%s_calificacion_demanda.docx", expediente);
 
         ResponseCalificacionDemandaDocx response = new ResponseCalificacionDemandaDocx();
         response.setDocumento(docxBytes);
@@ -288,17 +287,50 @@ public class GeminiServiceImpl implements GeminiService {
 
         byte[] docxBytes = DocxGeneratorUtil.textToDocx(demanda.getResponse());
 
-        String anio = demanda.getAnio() != null ? demanda.getAnio() : "0";
-        String expNro = demanda.getExpNro() != null ? demanda.getExpNro() : "0";
-        String id = demanda.getId() != null ? String.valueOf(demanda.getId()) : "0";
-
-        String nombreArchivo = String.format("calificacion_demanda_%s_%s_%s.docx", anio, expNro, id);
+        String expediente = demanda.getXformato() != null ? demanda.getXformato() : "";
+        String nombreArchivo = String.format("%s_calificacion_demanda.docx", expediente);
 
         ResponseCalificacionDemandaDocx response = new ResponseCalificacionDemandaDocx();
         response.setDocumento(docxBytes);
         response.setNombreArchivo(nombreArchivo);
 
         return response;
+    }
+
+    @Override
+    public Page<ResponseListadoDemandaCalificada> listarUltimaVersionDemandasCalificadas(InputListadoDemandasCalificadas input,
+                                                                                         Pageable pageable,
+                                                                                         String sessionId) throws Exception {
+
+        ResponseLogin responseLogin = validarSesion(sessionId);
+        Long userId = responseLogin.getUser().getIdUser();
+
+        InputListadoDemandasCalificadas filtros = input != null ? input : new InputListadoDemandasCalificadas();
+
+        // Los filtros llegan como fecha (yyyy-MM-dd) pero fechaSend es datetime: se expande el rango
+        // al inicio del día inicial y al fin del día final (ambos inclusive).
+        LocalDateTime fechaDesde = filtros.getFechaInicial() != null
+                ? filtros.getFechaInicial().atStartOfDay() : null;
+        LocalDateTime fechaHasta = filtros.getFechaFinal() != null
+                ? filtros.getFechaFinal().atTime(LocalTime.MAX) : null;
+
+        Page<DemandasCalificadas> pagina = demandasCalificadasDAO.listarUltimaVersionPorNunico(
+                userId, fechaDesde, fechaHasta, filtros.getAnio(), filtros.getExpNro(), pageable);
+
+        return pagina.map(ResponseListadoDemandaCalificada::fromEntity);
+    }
+
+    @Override
+    public List<ResponseListadoDemandaCalificada> listarCalificacionesPorNunico(Long nUnico, String sessionId) throws Exception {
+
+        ResponseLogin responseLogin = validarSesion(sessionId);
+        Long userId = responseLogin.getUser().getIdUser();
+
+        List<DemandasCalificadas> registros = demandasCalificadasDAO.listarPorNunico(userId, nUnico);
+
+        return registros.stream()
+                .map(ResponseListadoDemandaCalificada::fromEntity)
+                .toList();
     }
 
     /**
@@ -319,10 +351,11 @@ public class GeminiServiceImpl implements GeminiService {
         return responseLogin;
     }
 
-    private void publicarKafka(DemandasCalificadas demanda) {
+    private void publicarKafka(DemandasCalificadas demanda, UserLogin user) {
         try {
             demanda.setConfigurationsId(demanda.getConfigurations() != null ? demanda.getConfigurations().getId() : null);
-            kafkaTemplate.send(KAFKA_TOPIC, String.valueOf(demanda.getId()), demanda);
+            DemandasCalificadasToKafka payload = DemandasCalificadasToKafka.from(demanda, user);
+            kafkaTemplate.send(KAFKA_TOPIC, String.valueOf(demanda.getId()), payload);
         } catch (Exception ex) {
             logger.warn("Error publicando en Kafka topic {}: {}", KAFKA_TOPIC, ex.getMessage());
         }

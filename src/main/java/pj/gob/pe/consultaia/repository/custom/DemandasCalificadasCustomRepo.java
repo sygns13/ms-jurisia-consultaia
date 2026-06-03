@@ -5,6 +5,7 @@ import org.springframework.data.domain.Pageable;
 import pj.gob.pe.consultaia.model.entities.DemandasCalificadas;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 public interface DemandasCalificadasCustomRepo {
 
@@ -25,4 +26,22 @@ public interface DemandasCalificadasCustomRepo {
                                                String anio,
                                                String expNro,
                                                Pageable pageable);
+
+    /**
+     * Listado paginado de la ÚLTIMA versión de cada demanda calificada (agrupado por nUnico).
+     * Aplica los mismos filtros que {@link #listarPorFiltros}, pero por cada nUnico devuelve un
+     * único registro: el de mayor id (último registro realizado) dentro del conjunto filtrado.
+     */
+    Page<DemandasCalificadas> listarUltimaVersionPorNunico(Long userId,
+                                                           LocalDateTime fechaDesde,
+                                                           LocalDateTime fechaHasta,
+                                                           String anio,
+                                                           String expNro,
+                                                           Pageable pageable);
+
+    /**
+     * Lista TODAS las versiones (registros) de una demanda identificada por nUnico, filtrando
+     * siempre por userId. Ordenado por id DESC (del más nuevo al más antiguo). Sin paginación.
+     */
+    List<DemandasCalificadas> listarPorNunico(Long userId, Long nUnico);
 }

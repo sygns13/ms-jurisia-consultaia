@@ -11,6 +11,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -26,6 +27,7 @@ import pj.gob.pe.consultaia.utils.beans.responses.ResponseCalificacionDemanda;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseCalificacionDemandaDocx;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseListadoDemandaCalificada;
 
+import java.util.List;
 import java.util.concurrent.Callable;
 
 @Tag(name = "Service Gemini Controller", description = "API para realizar peticiones a GEMINI")
@@ -118,5 +120,56 @@ public class ServiceGeminiController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + result.getNombreArchivo() + "\"")
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .body(result.getDocumento());
+    }
+
+    @Operation(summary = "Listado paginado de la última versión de cada demanda calificada (agrupado por nUnico)",
+            description = "Igual que /listar-demandas-calificadas, pero agrupa por nUnico y devuelve solo la última " +
+                    "versión (último registro, mayor id) de cada demanda dentro del conjunto filtrado. Filtros opcionales " +
+                    "en el body: rango de fechas (fechaInicial/fechaFinal yyyy-MM-dd vs fechaSend), año (exacto) y número " +
+                    "de expediente (LIKE). Siempre se filtra por el userId de la sesión.")
+    @PostMapping("/listar-demandas-calificadas-agrupadas")
+    public ResponseEntity<ApiResponse<Page<ResponseListadoDemandaCalificada>>> listarDemandasCalificadasAgrupadas(
+            @RequestHeader("SessionId") String SessionId,
+            @RequestParam(name = "page", defaultValue = "0") int page,
+            @RequestParam(name = "size", defaultValue = "10") int size,
+            @RequestBody(required = false) InputListadoDemandasCalificadas input) {
+
+        long start = System.nanoTime();
+        try {
+            Pageable pageable = PageRequest.of(page, size).withSort(Sort.Direction.DESC, "id");
+            Page<ResponseListadoDemandaCalificada> result =
+                    geminiService.listarUltimaVersionDemandasCalificadas(input, pageable, SessionId);
+            double seconds = (System.nanoTime() - start) / 1_000_000_000.0;
+            return ResponseEntity.ok(ApiResponse.ok(result, seconds));
+        } catch (Exception e) {
+            Throwable cause = e;
+            while (cause.getCause() != null) cause = cause.getCause();
+            double seconds = (System.nanoTime() - start) / 1_000_000_000.0;
+            return ResponseEntity.internalServerError()
+                    .body(ApiResponse.error(cause.getMessage(), seconds));
+        }
+    }
+
+    @Operation(summary = "Listado de todas las versiones de una demanda calificada por nUnico",
+            description = "Lista todos los registros de DemandasCalificadas de un nUnico, filtrando siempre por el " +
+                    "userId de la sesión, ordenados del más nuevo al más antiguo (id DESC). Sin paginación.")
+    @GetMapping("/listar-calificaciones-por-nunico")
+    public ResponseEntity<ApiResponse<List<ResponseListadoDemandaCalificada>>> listarCalificacionesPorNunico(
+            @RequestHeader("SessionId") String SessionId,
+            @RequestParam(name = "nunico") Long nunico) {
+
+        long start = System.nanoTime();
+        try {
+            List<ResponseListadoDemandaCalificada> result =
+                    geminiService.listarCalificacionesPorNunico(nunico, SessionId);
+            double seconds = (System.nanoTime() - start) / 1_000_000_000.0;
+            return ResponseEntity.ok(ApiResponse.ok(result, seconds));
+        } catch (Exception e) {
+            Throwable cause = e;
+            while (cause.getCause() != null) cause = cause.getCause();
+            double seconds = (System.nanoTime() - start) / 1_000_000_000.0;
+            return ResponseEntity.internalServerError()
+                    .body(ApiResponse.error(cause.getMessage(), seconds));
+        }
     }
 }
