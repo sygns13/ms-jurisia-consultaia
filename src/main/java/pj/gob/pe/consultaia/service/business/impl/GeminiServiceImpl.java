@@ -47,6 +47,7 @@ import pj.gob.pe.consultaia.service.externals.GcsStorageService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.Constantes;
 import pj.gob.pe.consultaia.utils.DocxGeneratorUtil;
+import pj.gob.pe.consultaia.utils.PdfMergeUtil;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputCalificacionDemanda;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputDescargaCalificacion;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputListadoDemandasCalificadas;
@@ -161,7 +162,7 @@ public class GeminiServiceImpl implements GeminiService {
         demanda.setCmateria(input.getCmateria());
         demanda.setCespecialidad(input.getCespecialidad());
         demanda.setXdescUbicacion(input.getXdescUbicacion());
-        demanda.setXnombreArchivo(input.getXnombreArchivo());
+        demanda.setXnombreArchivo(String.join("; ", input.getArchivos()));
         demanda.setNincidente(input.getNincidente());
         demanda.setXrutaArchivo(input.getXrutaArchivo());
         demanda.setXdescMateria(input.getXdescMateria());
@@ -172,7 +173,11 @@ public class GeminiServiceImpl implements GeminiService {
 
         byte[] pdfBytes;
         try {
-            pdfBytes = ftpService.descargarArchivo(input.getRutaCompleta(), input.getXnombreArchivo());
+            // Una demanda puede estar formada por 1..n archivos PDF. Se descargan todos desde
+            // la misma ruta FTP (una sola conexión) en el orden recibido y se unen en un solo PDF
+            // antes de continuar con el flujo de calificación.
+            List<byte[]> pdfsDescargados = ftpService.descargarArchivos(input.getRutaCompleta(), input.getArchivos());
+            pdfBytes = PdfMergeUtil.unir(pdfsDescargados);
         } catch (Exception ex) {
             logger.error("Error descargando archivo FTP: {}", ex.getMessage(), ex);
             demanda.setStatus(Constantes.CALIFICACION_DEMANDA_ERROR_FILE_NOT_FOUND);

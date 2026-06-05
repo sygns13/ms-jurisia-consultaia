@@ -3,12 +3,14 @@ package pj.gob.pe.consultaia.utils.beans.inputs;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Schema(description = "Input para calificación de demanda con Gemini")
 @Data
@@ -70,9 +72,10 @@ public class InputCalificacionDemanda {
     @Schema(description = "Descripción de la ubicación", example = "MPU / CDG")
     private String xdescUbicacion;
 
-    @NotNull(message = "xnombreArchivo es requerido")
-    @Schema(description = "Nombre del archivo PDF de la demanda", example = "0000185529-2026-EXP-JR-FC_15052026_155311.pdf")
-    private String xnombreArchivo;
+    @NotEmpty(message = "archivos es requerido y debe contener al menos un archivo")
+    @Schema(description = "Nombres de los archivos PDF que conforman la demanda, en el orden en que deben unirse",
+            example = "[\"nombre_archivo_1.pdf\", \"nombre_archivo_2.pdf\", \"nombre_archivo_3.pdf\"]")
+    private List<String> archivos;
 
     @Schema(description = "Número de incidente", example = "0")
     private String nincidente;

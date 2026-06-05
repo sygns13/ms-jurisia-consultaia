@@ -63,7 +63,7 @@ CREATE TABLE `JURISDB_CONSULTATIONIA`.`DemandasCalificadas` (
 `cmateria` char(20) DEFAULT NULL,
 `cespecialidad` char(20) DEFAULT NULL,
 `xdescUbicacion` char(100) DEFAULT NULL,
-`xnombreArchivo` char(100) DEFAULT NULL,
+`xnombreArchivo` varchar(500) DEFAULT NULL,
 `nincidente` char(20) DEFAULT NULL,
 `xrutaArchivo` char(100) DEFAULT NULL,
 `xdescMateria` char(100) DEFAULT NULL,

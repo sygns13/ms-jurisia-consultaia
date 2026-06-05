@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 public class FtpServiceImpl implements FtpService {
@@ -23,11 +25,21 @@ public class FtpServiceImpl implements FtpService {
     @Override
     public byte[] descargarArchivo(String rutaCompleta, String nombreArchivo) throws Exception {
 
+        if (nombreArchivo == null || nombreArchivo.isEmpty()) {
+            throw new ValidationServiceException("El nombre del archivo (archivos) es requerido");
+        }
+
+        return descargarArchivos(rutaCompleta, List.of(nombreArchivo)).get(0);
+    }
+
+    @Override
+    public List<byte[]> descargarArchivos(String rutaCompleta, List<String> nombresArchivo) throws Exception {
+
         if (rutaCompleta == null || rutaCompleta.isEmpty()) {
             throw new ValidationServiceException("La ruta FTP (rutaCompleta) es requerida");
         }
-        if (nombreArchivo == null || nombreArchivo.isEmpty()) {
-            throw new ValidationServiceException("El nombre del archivo (xnombreArchivo) es requerido");
+        if (nombresArchivo == null || nombresArchivo.isEmpty()) {
+            throw new ValidationServiceException("Se requiere al menos un nombre de archivo (archivos)");
         }
 
         FtpConnectionInfo info = parseFtpUri(rutaCompleta);
@@ -61,21 +73,32 @@ public class FtpServiceImpl implements FtpService {
                 }
             }
 
-            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-            boolean retrieved = ftpClient.retrieveFile(nombreArchivo, outputStream);
+            List<byte[]> archivos = new ArrayList<>(nombresArchivo.size());
 
-            if (!retrieved) {
-                throw new IOException("No se pudo descargar el archivo: " + nombreArchivo
-                        + " (replyCode=" + ftpClient.getReplyCode() + ")");
+            for (String nombreArchivo : nombresArchivo) {
+
+                if (nombreArchivo == null || nombreArchivo.isEmpty()) {
+                    throw new ValidationServiceException("La lista de archivos contiene un nombre vacío o nulo");
+                }
+
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                boolean retrieved = ftpClient.retrieveFile(nombreArchivo, outputStream);
+
+                if (!retrieved) {
+                    throw new IOException("No se pudo descargar el archivo: " + nombreArchivo
+                            + " (replyCode=" + ftpClient.getReplyCode() + ")");
+                }
+
+                byte[] bytes = outputStream.toByteArray();
+
+                if (bytes.length == 0) {
+                    throw new IOException("El archivo descargado está vacío: " + nombreArchivo);
+                }
+
+                archivos.add(bytes);
             }
 
-            byte[] bytes = outputStream.toByteArray();
-
-            if (bytes.length == 0) {
-                throw new IOException("El archivo descargado está vacío: " + nombreArchivo);
-            }
-
-            return bytes;
+            return archivos;
 
         } finally {
             try {

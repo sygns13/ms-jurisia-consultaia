@@ -131,8 +131,8 @@ public class DemandasCalificadas {
     @Schema(description = "Descripción de la ubicación")
     private String xdescUbicacion;
 
-    @Column(name = "xnombreArchivo", length = 100)
-    @Schema(description = "Nombre del archivo")
+    @Column(name = "xnombreArchivo", length = 500)
+    @Schema(description = "Nombre(s) del/los archivo(s) PDF que conforman la demanda (separados por '; ')")
     private String xnombreArchivo;
 
     @Column(name = "nincidente", length = 20)
