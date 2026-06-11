@@ -145,7 +145,7 @@ public class GcsStorageServiceImpl implements GcsStorageService {
      * {@code return buildHttpTransportProxyGoogle();} para conmutar todo el servicio.
      */
     private NetHttpTransport buildHttpTransport() {
-        return buildHttpTransportProxyAntiguo();
+        return buildHttpTransportProxyGoogle();
     }
 
     /** Proxy ANTERIOR (general SIJ, {@code sij.proxy.config} → 172.17.16.213:1598). */
