@@ -154,7 +154,22 @@ public class GeminiServiceImpl implements GeminiService {
                     "- Aranceles: Pago por ofrecimiento de pruebas y notificación (salvo defensa pública o pretensión alimentaria menor a 20 URP).\n" +
                     "</guia_de_calificacion>\n\n" +
 
+                    "<reglas_redaccion>\n" +
+                    "- Usa la <plantilla_ejemplo> como modelo de estructura, estilo y formalidades: cabecera, \n" +
+                    "  \"RESOLUCIÓN NÚMERO...\", lugar y fecha en letras, considerandos numerados con subtítulos \n" +
+                    "  (tutela jurisdiccional, calificación de la demanda, legitimidad, competencia, etc.) y \n" +
+                    "  parte resolutiva con numerales romanos.\n" +
+                    "- La cabecera DEBE incluir: juzgado y sede, EXPEDIENTE, MATERIA, JUEZ, ESPECIALISTA, \n" +
+                    "  DEMANDADO y DEMANDANTE, tomados exclusivamente de <datos_expediente> con excepción de juzgado este tomarlo de la plantilla de ejemplo.\n" +
+                    "- Cita los artículos aplicables apoyándote en <guia_de_calificacion> y <normativa_recuperada>; \n" +
+                    "  no cites normas que no figuren en esos contextos ni en la demanda.\n" +
+                    "- Si un dato no consta, escribe [COMPLETAR: dato]. Prohibido inventar datos, fechas, \n" +
+                    "  enlaces o nombres.\n" +
+                    "- Tu respuesta es ÚNICAMENTE el texto de la resolución, sin comentarios ni explicaciones. \n" +
+                    "</reglas_redaccion>\n\n" +
+
                     "<plantilla_ejemplo>\n" +
+                    "[Nombre de Juzgado]\n" +
                     "EXPEDIENTE     : [Número de Expediente]\n" +
                     "MATERIA        : [Materia de la demanda]\n" +
                     "JUEZ           : [Nombre del Juez]\n" +
@@ -193,6 +208,7 @@ public class GeminiServiceImpl implements GeminiService {
 
         configurations.setRoleSystem(ROLE_SYSTEM);
         configurations.setPromptDefault(PROMPT_DEFAULT);
+        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre de Juzgado]", input.getXnomInstancia()));
 
         DemandasCalificadas demanda = new DemandasCalificadas();
         LocalDateTime fechaSend = LocalDateTime.now();
