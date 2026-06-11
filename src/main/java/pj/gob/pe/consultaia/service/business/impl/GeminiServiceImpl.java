@@ -112,10 +112,66 @@ public class GeminiServiceImpl implements GeminiService {
      * demanda. Estos términos alimentan la búsqueda vectorial; no proviene de la BD porque
      * es parte del mecanismo RAG, no de la configuración funcional de la calificación.
      */
+    /*
     private static final String PROMPT_EXTRACCION_CONCEPTOS =
             "Lee esta demanda adjunta. Extrae ÚNICAMENTE una lista de los conceptos " +
             "jurídicos procesales involucrados, el tipo de proceso, y las posibles omisiones de forma. " +
             "Responde solo con palabras clave separadas por comas, sin explicaciones.";
+    */
+    private static final String PROMPT_EXTRACCION_CONCEPTOS =
+            "Lee la demanda adjunta. Tu objetivo es generar términos de búsqueda para un sistema de RAG vectorial de normativa peruana. " +
+                    "Extrae: 1) Los conceptos jurídicos clave y el tipo de proceso. 2) Posibles omisiones formales (ej. falta de firma, falta de anexos, DNI). " +
+                    "Responde ÚNICAMENTE con una lista de palabras clave y artículos legales relevantes separados por comas, sin explicaciones ni viñetas.";
+
+    private static final String ROLE_SYSTEM = "Eres un Asistente Judicial Virtual experto en derecho procesal peruano. " +
+            "Tu función es calificar demandas (generando Autos Admisorios, de Inadmisibilidad o Improcedencia) analizando " +
+            "los hechos frente a la normativa vigente. \n" +
+            "REGLA ESTRICTA: Tu respuesta debe ser ÚNICAMENTE el borrador de la resolución judicial. DEBES respetar rigurosamente " +
+            "la estructura formal de las resoluciones judiciales peruanas, incluyendo siempre una cabecera completa con los datos de " +
+            "identificación del expediente, partes y juzgado, sin omitir ningún campo.";
+
+    private static final String PROMPT_DEFAULT =
+            "Por favor, califica la demanda adjunta utilizando los artículos normativos recuperados y siguiendo ESTRICTAMENTE las reglas y la estructura que se detallan a continuación.\n\n" +
+
+                    "<instrucciones>\n" +
+                    "1. Extrae de la demanda los datos para la CABECERA (Expediente, Materia, Juez, Especialista, Demandado, Demandante). Si un dato (como el nombre del Juez o Especialista) no aparece en la demanda, utiliza el marcador '[Por designar]'. NUNCA omitas los campos de la cabecera.\n" +
+                    "2. Evalúa la demanda paso a paso utilizando la <guia_de_calificacion>.\n" +
+                    "3. Si la demanda incumple requisitos del Art. 427 CPC, redacta una resolución de IMPROCEDENCIA.\n" +
+                    "4. Si la demanda incumple requisitos del Art. 424, 130, 425 CPC o pago de aranceles, redacta una resolución de INADMISIBILIDAD.\n" +
+                    "5. Si la demanda cumple con todos los requisitos, redacta un AUTO ADMISORIO siguiendo exactamente la estructura de la <plantilla_ejemplo>.\n" +
+                    "</instrucciones>\n\n" +
+
+                    "<guia_de_calificacion>\n" +
+                    "REQUISITOS DE PROCEDIBILIDAD (Art. 427 CPC - Improcedencia):\n" +
+                    "- Demandante carece de legitimidad o interés para obrar.\n" +
+                    "- Caducidad del derecho.\n" +
+                    "- No existe conexión lógica entre hechos y petitorio.\n" +
+                    "- Petitorio jurídica o físicamente imposible.\n\n" +
+                    "REQUISITOS DE ADMISIBILIDAD (Art. 424, 130, 425 CPC y Res. Adm. 481-2025-CE-PJ - Inadmisibilidad):\n" +
+                    "- Art 424: Designación del juez, datos completos y domicilios/casillas de demandante y demandado, petitorio claro, fundamentos de hecho y derecho, monto, medios probatorios, firma de demandante y abogado.\n" +
+                    "- Art 130: Anexos identificados correctamente y otrosíes independientes.\n" +
+                    "- Art 425: Copia legible de DNI, copias de medios probatorios.\n" +
+                    "- Aranceles: Pago por ofrecimiento de pruebas y notificación (salvo defensa pública o pretensión alimentaria menor a 20 URP).\n" +
+                    "</guia_de_calificacion>\n\n" +
+
+                    "<plantilla_ejemplo>\n" +
+                    "EXPEDIENTE     : [Número de Expediente]\n" +
+                    "MATERIA        : [Materia de la demanda]\n" +
+                    "JUEZ           : [Nombre del Juez]\n" +
+                    "ESPECIALISTA   : [Nombre del Especialista]\n" +
+                    "DEMANDADO      : [Nombre completo]\n" +
+                    "DEMANDANTE     : [Nombre completo]\n\n" +
+                    "AUTO [ADMISORIO / INADMISIBILIDAD / IMPROCEDENCIA]\n" +
+                    "RESOLUCIÓN NÚMERO UNO\n" +
+                    "[Ciudad], [Fecha actual]. -\n\n" +
+                    "AUTOS Y VISTOS; ...\n" +
+                    "CONSIDERANDO:\n" +
+                    "[Desarrollar aquí los considerandos de Tutela, Calificación, Legitimación, etc., basándote en la normativa recuperada y la guía de calificación]\n\n" +
+                    "SE RESUELVE:\n" +
+                    "[Fallo correspondiente: Admitir, declarar inadmisible otorgando plazo, o rechazar la demanda].\n" +
+                    "</plantilla_ejemplo>\n\n" +
+
+                    "Basado en esto, redacta la resolución final.";
 
     @Override
     public ResponseCalificacionDemanda calificarDemanda(InputCalificacionDemanda input, String sessionId) throws Exception {
@@ -134,6 +190,9 @@ public class GeminiServiceImpl implements GeminiService {
         if (configurations == null || configurations.getId() == null) {
             throw new ValidationServiceException("La Configuración de Comunicación con la IA no está realizada adecuadamente, comunicarlo a un administrador");
         }
+
+        configurations.setRoleSystem(ROLE_SYSTEM);
+        configurations.setPromptDefault(PROMPT_DEFAULT);
 
         DemandasCalificadas demanda = new DemandasCalificadas();
         LocalDateTime fechaSend = LocalDateTime.now();
