@@ -712,10 +712,14 @@ public class GeminiServiceImpl implements GeminiService {
 
                 if (!id.isEmpty()) {
                     if (distance >= UMBRAL_MINIMO_SIMILITUD) {
-                        ids.add(id);
-                        // Opcional: Imprimir en consola para calibrar tu umbral durante el desarrollo
-                        //System.out.printf("Aceptado - ID: %s | Score: %.4f%n", id, distance);
-                        logger.info("Aceptado - ID: {} | Score: {}", id, String.format("%.4f%n", distance));
+                        if(!ids.contains(id)){
+                            ids.add(id);
+                            // Opcional: Imprimir en consola para calibrar tu umbral durante el desarrollo
+                            //System.out.printf("Aceptado - ID: %s | Score: %.4f%n", id, distance);
+                            logger.info("Aceptado - ID: {} | Score: {}", id, String.format("%.4f%n", distance));
+                        } else{
+                            logger.info("Aceptado Pero - ID Ya en list: {} | Score: {}", id, String.format("%.4f%n", distance));
+                        }
                     } else {
                         //System.out.printf("Descartado (Ruido) - ID: %s | Score: %.4f%n", id, distance);
                         logger.info("Descartado (Ruido) - ID: {} | Score: {}", id, String.format("%.4f%n", distance));
