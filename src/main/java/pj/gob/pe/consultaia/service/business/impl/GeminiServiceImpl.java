@@ -67,11 +67,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -693,12 +689,38 @@ public class GeminiServiceImpl implements GeminiService {
 
         JsonNode resp = ejecutarPost(httpTransport, accessToken, url, mapper.writeValueAsString(body));
 
+        // Definir umbral (este valor se afina empíricamente, 0.65 - 0.75 suele ser un buen inicio)
+        double UMBRAL_MINIMO_SIMILITUD = 0.78;
+
         List<String> ids = new ArrayList<>();
+
+        // 2. Defines tus chunks estáticos obligatorios (Derecho Procesal para Calificación)
+        List<String> chunksEstaticosObligatorios = (Arrays.asList(
+                "CPC-articulo-424",
+                "CPC-articulo-425",
+                "CPC-articulo-427",
+                "CPC-articulo-130"
+        ));
+
+        ids.addAll(chunksEstaticosObligatorios);
+
         for (JsonNode grupo : resp.path("nearestNeighbors")) {
             for (JsonNode vecino : grupo.path("neighbors")) {
                 String id = vecino.path("datapoint").path("datapointId").asText("");
+                // Vertex devuelve la métrica calculada en el campo "distance"
+                double distance = vecino.path("distance").asDouble(0.0);
+
                 if (!id.isEmpty()) {
-                    ids.add(id);
+                    if (distance >= UMBRAL_MINIMO_SIMILITUD) {
+                        ids.add(id);
+                        // Opcional: Imprimir en consola para calibrar tu umbral durante el desarrollo
+                        //System.out.printf("Aceptado - ID: %s | Score: %.4f%n", id, distance);
+                        logger.info("Aceptado - ID: {} | Score: {}", id, String.format("%.4f%n", distance));
+                    } else {
+                        //System.out.printf("Descartado (Ruido) - ID: %s | Score: %.4f%n", id, distance);
+                        logger.info("Descartado (Ruido) - ID: {} | Score: {}", id, String.format("%.4f%n", distance));
+
+                    }
                 }
             }
         }
