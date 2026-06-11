@@ -30,6 +30,7 @@ public class ConfigProperties {
     @Value("${spring.data.redis.ttl:3600}")
     private Long REDIS_TTL;
 
+    // --- Proxy ANTERIOR (general SIJ). Usado por OpenAI (OpenAPIServiceImpl) ---
     @Value("${sij.proxy.config.enabled:false}")
     private Boolean proxyEnabled;
 
@@ -38,6 +39,18 @@ public class ConfigProperties {
 
     @Value("${sij.proxy.config.port}")
     private Integer proxyPort;
+
+    // --- Proxy NUEVO (PAC ADcsjan). Usado por Google Cloud / Vertex / Gemini
+    //     (GcsStorageServiceImpl, GeminiServiceImpl). El PAC enruta *.googleapis.com por
+    //     proxycsjan.pj.gob.pe:3128 (alterno por paridad de IP: proxycsjan2.pj.gob.pe:3128). ---
+    @Value("${sij.proxy.google.enabled:false}")
+    private Boolean proxyGoogleEnabled;
+
+    @Value("${sij.proxy.google.host}")
+    private String proxyGoogleHost;
+
+    @Value("${sij.proxy.google.port}")
+    private Integer proxyGooglePort;
 
     @Value("${api.judicial.url}")
     private String urlJudicialAPI;

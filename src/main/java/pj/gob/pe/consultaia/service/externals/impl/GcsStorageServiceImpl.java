@@ -139,9 +139,19 @@ public class GcsStorageServiceImpl implements GcsStorageService {
     }
 
     private NetHttpTransport buildHttpTransport() {
-        if (Boolean.TRUE.equals(properties.getProxyEnabled())) {
+        // --- Proxy ANTERIOR (general SIJ 172.17.16.213:1598). Se mantiene comentado como referencia:
+        //     el tráfico hacia GCS/Vertex pasa ahora por el proxy PAC de Google (ver abajo).
+        // if (Boolean.TRUE.equals(properties.getProxyEnabled())) {
+        //     Proxy proxy = new Proxy(Proxy.Type.HTTP,
+        //             new InetSocketAddress(properties.getProxyURL(), properties.getProxyPort()));
+        //     return new NetHttpTransport.Builder().setProxy(proxy).build();
+        // }
+
+        // --- Proxy NUEVO (PAC ADcsjan) para Google Cloud / Vertex / Gemini.
+        //     El PAC enruta *.googleapis.com por proxycsjan(2).pj.gob.pe:3128 (ver application.yml).
+        if (Boolean.TRUE.equals(properties.getProxyGoogleEnabled())) {
             Proxy proxy = new Proxy(Proxy.Type.HTTP,
-                    new InetSocketAddress(properties.getProxyURL(), properties.getProxyPort()));
+                    new InetSocketAddress(properties.getProxyGoogleHost(), properties.getProxyGooglePort()));
             return new NetHttpTransport.Builder().setProxy(proxy).build();
         }
         return new NetHttpTransport.Builder().build();
