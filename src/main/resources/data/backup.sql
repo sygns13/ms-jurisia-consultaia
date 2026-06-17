@@ -87,3 +87,9 @@ KEY `IdxFinicio` (`finicio`),
 KEY `fK_DemandasCalificadas_Configurations` (`ConfigurationsId`),
 CONSTRAINT `fK_DemandasCalificadas_Configurations` FOREIGN KEY (`ConfigurationsId`) REFERENCES `JURISDB_CONSULTATIONIA`.`Configurations` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+ALTER TABLE `JURISDB_CONSULTATIONIA`.`DemandasCalificadas`
+    ADD COLUMN `xdescJuez` CHAR(200) NULL AFTER `finicio`,
+ADD COLUMN `xdescEspecialista` CHAR(200) NULL AFTER `xdescJuez`,
+ADD COLUMN `xdescDemandado` CHAR(200) NULL AFTER `xdescEspecialista`,
+ADD COLUMN `xdescDemandante` CHAR(200) NULL AFTER `xdescDemandado`;

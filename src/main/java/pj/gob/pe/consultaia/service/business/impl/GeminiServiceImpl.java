@@ -165,13 +165,13 @@ public class GeminiServiceImpl implements GeminiService {
                     "</reglas_redaccion>\n\n" +
 
                     "<plantilla_ejemplo>\n" +
-                    "[Nombre de Juzgado]\n" +
-                    "EXPEDIENTE     : [Número de Expediente]\n" +
-                    "MATERIA        : [Materia de la demanda]\n" +
-                    "JUEZ           : [Nombre del Juez]\n" +
-                    "ESPECIALISTA   : [Nombre del Especialista]\n" +
-                    "DEMANDADO      : [Nombre completo]\n" +
-                    "DEMANDANTE     : [Nombre completo]\n\n" +
+                    "[Nombre_de_Juzgado]\n" +
+                    "EXPEDIENTE     : [Número_de_Expediente]\n" +
+                    "MATERIA        : [Materia_de_la_demanda]\n" +
+                    "JUEZ           : [Nombre_del_Juez]\n" +
+                    "ESPECIALISTA   : [Nombre_del_Especialista]\n" +
+                    "DEMANDADO      : [Nombre_completo_Demandado]\n" +
+                    "DEMANDANTE     : [Nombre_completo_Demandante]\n\n" +
                     "AUTO [ADMISORIO / INADMISIBILIDAD / IMPROCEDENCIA]\n" +
                     "RESOLUCIÓN NÚMERO UNO\n" +
                     "[Ciudad], [Fecha actual]. -\n\n" +
@@ -204,7 +204,13 @@ public class GeminiServiceImpl implements GeminiService {
 
         configurations.setRoleSystem(ROLE_SYSTEM);
         configurations.setPromptDefault(PROMPT_DEFAULT);
-        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre de Juzgado]", input.getXnomInstancia()));
+        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Número_de_Expediente]", input.getXformato()));
+        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_de_Juzgado]", input.getXnomInstancia()));
+        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Materia_de_la_demanda]", input.getXdescMateria()));
+        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_del_Juez]", input.getXdescJuez()));
+        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_del_Especialista]", input.getXdescEspecialista()));
+        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_completo_Demandado]", input.getXdescDemandado()));
+        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_completo_Demandante]", input.getXdescDemandante()));
 
         DemandasCalificadas demanda = new DemandasCalificadas();
         LocalDateTime fechaSend = LocalDateTime.now();
@@ -239,6 +245,10 @@ public class GeminiServiceImpl implements GeminiService {
         demanda.setXdescMateria(input.getXdescMateria());
         demanda.setFinicio(input.getFinicio());
         demanda.setStatus(Constantes.CALIFICACION_DEMANDA_INICIADA);
+        demanda.setXdescJuez(input.getXdescJuez());
+        demanda.setXdescEspecialista(input.getXdescEspecialista());
+        demanda.setXdescDemandado(input.getXdescDemandado());
+        demanda.setXdescDemandante(input.getXdescDemandante());
 
         demanda = demandasCalificadasDAO.registrar(demanda);
 

@@ -152,6 +152,22 @@ public class DemandasCalificadas {
     @Schema(description = "Fecha de inicio del expediente", example = "2025-01-01T00:00:00")
     private LocalDateTime finicio;
 
+    @Column(name = "xdescJuez", length = 200)
+    @Schema(description = "Descripción del nombre del Juez", example = "Juan Perez")
+    private String xdescJuez;
+
+    @Column(name = "xdescEspecialista", length = 200)
+    @Schema(description = "Descripción del nombre del Especialista", example = "Rosa Suarez")
+    private String xdescEspecialista;
+
+    @Column(name = "xdescDemandado", length = 200)
+    @Schema(description = "Descripción del nombre del Demandado", example = "Mario Lopez")
+    private String xdescDemandado;
+
+    @Column(name = "xdescDemandante", length = 200)
+    @Schema(description = "Descripción del nombre del Demandante", example = "Maria Ruiz")
+    private String xdescDemandante;
+
     @Transient
     private Integer configurationsId;
 }

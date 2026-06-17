@@ -85,4 +85,16 @@ public class InputCalificacionDemanda {
 
     @Schema(description = "Descripción de la materia", example = "DIVORCIO POR CAUSAL")
     private String xdescMateria;
+
+    @Schema(description = "Descripción del nombre del Juez", example = "Juan Perez")
+    private String xdescJuez;
+
+    @Schema(description = "Descripción del nombre del Especialista", example = "Rosa Suarez")
+    private String xdescEspecialista;
+
+    @Schema(description = "Descripción del nombre del Demandado", example = "Mario Lopez")
+    private String xdescDemandado;
+
+    @Schema(description = "Descripción del nombre del Demandante", example = "Maria Ruiz")
+    private String xdescDemandante;
 }
