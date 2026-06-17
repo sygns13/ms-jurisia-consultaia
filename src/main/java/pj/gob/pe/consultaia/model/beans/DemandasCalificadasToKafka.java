@@ -2,6 +2,7 @@ package pj.gob.pe.consultaia.model.beans;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.persistence.Column;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -63,6 +64,11 @@ public class DemandasCalificadasToKafka {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime finicio;
 
+    private String xdescJuez;
+    private String xdescEspecialista;
+    private String xdescDemandado;
+    private String xdescDemandante;
+
     // ===== Datos del usuario (sesión / UserLogin) =====
     private Long idUser;
     private Integer tipoDocumento;
@@ -121,6 +127,10 @@ public class DemandasCalificadasToKafka {
         k.setXrutaArchivo(d.getXrutaArchivo());
         k.setXdescMateria(d.getXdescMateria());
         k.setFinicio(d.getFinicio());
+        k.setXdescJuez(d.getXdescJuez());
+        k.setXdescEspecialista(d.getXdescEspecialista());
+        k.setXdescDemandado(d.getXdescDemandado());
+        k.setXdescDemandante(d.getXdescDemandante());
 
         if (u != null) {
             k.setIdUser(u.getIdUser());
