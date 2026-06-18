@@ -115,8 +115,9 @@ public class GeminiServiceImpl implements GeminiService {
             "Responde solo con palabras clave separadas por comas, sin explicaciones.";
     */
     private static final String PROMPT_EXTRACCION_CONCEPTOS =
-            "Lee la demanda adjunta. Tu objetivo es generar términos de búsqueda para un sistema de RAG vectorial de normativa peruana. " +
+            "Lee la demanda adjunta, INCLUYENDO sus anexos. Tu objetivo es generar términos de búsqueda para un sistema de RAG vectorial de normativa peruana. " +
                     "Extrae: 1) Los conceptos jurídicos clave y el tipo de proceso. 2) Posibles omisiones formales (ej. falta de firma, falta de anexos, DNI). " +
+                    "3) Indicios de falta de interés para obrar: si en los anexos (actas de conciliación extrajudicial, sentencias o autos previos, acuerdos homologados) consta que el petitorio YA fue otorgado, reconocido o satisfecho. " +
                     "Responde ÚNICAMENTE con una lista de palabras clave y artículos legales relevantes separados por comas, sin explicaciones ni viñetas.";
 
     private static final String ROLE_SYSTEM = "Eres un Asistente Judicial Virtual experto en derecho procesal peruano. " +
@@ -131,16 +132,18 @@ public class GeminiServiceImpl implements GeminiService {
 
                     "<instrucciones>\n" +
                     "1. Extrae de la demanda los datos para la CABECERA (Expediente, Materia, Juez, Especialista, Demandado, Demandante). Si un dato (como el nombre del Juez o Especialista) no aparece en la demanda, utiliza el marcador '[Por designar]'. NUNCA omitas los campos de la cabecera.\n" +
-                    "2. Evalúa la demanda paso a paso utilizando la <guia_de_calificacion>.\n" +
-                    "3. Si la demanda incumple requisitos del Art. 427 CPC, redacta una resolución de IMPROCEDENCIA.\n" +
-                    "4. Si la demanda incumple requisitos del Art. 424, 130, 425 CPC o pago de aranceles, redacta una resolución de INADMISIBILIDAD.\n" +
-                    "5. Si la demanda cumple con todos los requisitos, redacta un AUTO ADMISORIO siguiendo exactamente la estructura de la <plantilla_ejemplo>.\n" +
+                    "2. CONTROL SUSTANTIVO OBLIGATORIO DEL INTERÉS PARA OBRAR (antes de evaluar la forma): contrasta el PETITORIO con TODOS los anexos y documentos adjuntos (actas de conciliación extrajudicial, sentencias o autos previos, acuerdos homologados, partidas, contratos, etc.). Si de los anexos se desprende que el demandante YA POSEE, YA OBTUVO o YA TIENE RECONOCIDO aquello que solicita —el derecho o situación pretendida ya está otorgado, reconocido o satisfecho—, la demanda NO puede ser ADMITIDA aunque cumpla todos los requisitos formales, porque existe falta de interés para obrar (pedir lo que ya se tiene no genera tutela útil). En este supuesto NO redactes Auto Admisorio: califica la demanda como IMPROCEDENTE (Art. 427 CPC, falta de interés para obrar) o INADMISIBLE según corresponda al caso concreto, eligiendo la vía que mejor proteja la tutela y JUSTIFICANDO expresamente tu elección. Debes citar el documento anexo concreto que acredita que el petitorio ya está satisfecho e indicar que la vía idónea es la modificación, variación o reconsideración de lo ya acordado, no una pretensión nueva sobre lo ya obtenido.\n" +
+                    "3. Evalúa la demanda paso a paso utilizando la <guia_de_calificacion>.\n" +
+                    "4. Si la demanda incumple requisitos del Art. 427 CPC (incluida la falta de interés para obrar detectada en el paso 2), redacta una resolución de IMPROCEDENCIA.\n" +
+                    "5. Si la demanda incumple requisitos del Art. 424, 130, 425 CPC o pago de aranceles, redacta una resolución de INADMISIBILIDAD.\n" +
+                    "6. Si la demanda supera el control sustantivo del paso 2 y cumple con todos los requisitos formales, redacta un AUTO ADMISORIO siguiendo exactamente la estructura de la <plantilla_ejemplo>.\n" +
                     "</instrucciones>\n\n" +
 
                     "<guia_de_calificacion>\n" +
                     "REQUISITOS DE PROCEDIBILIDAD (Art. 427 CPC - Improcedencia):\n" +
-                    "- Demandante carece de legitimidad o interés para obrar.\n" +
+                    "- Demandante carece de legitimidad o interés para obrar. NO hay interés para obrar cuando lo pedido en el petitorio YA fue otorgado, reconocido o satisfecho con anterioridad y así consta en los anexos (p. ej. acta de conciliación extrajudicial sobre régimen de visitas, alimentos o tenencia; sentencia o auto previo; acuerdo homologado). Solicitar nuevamente lo que ya se posee no produce tutela útil; la vía idónea es la modificación, variación o reconsideración de lo ya acordado, no una pretensión nueva.\n" +
                     "- Caducidad del derecho.\n" +
+                    "- Cosa juzgada o conciliación con calidad de cosa juzgada sobre la misma pretensión.\n" +
                     "- No existe conexión lógica entre hechos y petitorio.\n" +
                     "- Petitorio jurídica o físicamente imposible.\n\n" +
                     "REQUISITOS DE ADMISIBILIDAD (Art. 424, 130, 425 CPC y Res. Adm. 481-2025-CE-PJ - Inadmisibilidad):\n" +
@@ -159,6 +162,10 @@ public class GeminiServiceImpl implements GeminiService {
                     "  DEMANDADO y DEMANDANTE, tomados exclusivamente de <datos_expediente> con excepción de juzgado este tomarlo de la plantilla de ejemplo.\n" +
                     "- Cita los artículos aplicables apoyándote en <guia_de_calificacion> y <normativa_recuperada>; \n" +
                     "  no cites normas que no figuren en esos contextos ni en la demanda.\n" +
+                    "- Cuando rechaces la demanda por falta de interés para obrar (petitorio ya satisfecho), incluye un \n" +
+                    "  considerando específico que identifique el anexo concreto que lo acredita (tipo de documento, \n" +
+                    "  entidad que lo emitió y lo que reconoce) y señale la vía procesal idónea (modificación, variación \n" +
+                    "  o reconsideración de lo ya acordado).\n" +
                     "- Si un dato no consta, escribe [COMPLETAR: dato]. Prohibido inventar datos, fechas, \n" +
                     "  enlaces o nombres.\n" +
                     "- Tu respuesta es ÚNICAMENTE el texto de la resolución, sin comentarios ni explicaciones. \n" +
