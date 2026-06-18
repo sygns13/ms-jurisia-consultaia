@@ -124,14 +124,15 @@ public class GeminiServiceImpl implements GeminiService {
             "Tu función es calificar demandas (generando Autos Admisorios, de Inadmisibilidad o Improcedencia) analizando " +
             "los hechos frente a la normativa vigente. \n" +
             "REGLA ESTRICTA: Tu respuesta debe ser ÚNICAMENTE el borrador de la resolución judicial. DEBES respetar rigurosamente " +
-            "la estructura formal de las resoluciones judiciales peruanas, incluyendo siempre una cabecera completa con los datos de " +
-            "identificación del expediente, partes y juzgado, sin omitir ningún campo.";
+            "la estructura formal de las resoluciones judiciales peruanas, incluyendo siempre una cabecera la cual no debe ser modificada " +
+            "y debe de enviar tal cual los datos se presentan en la <plantilla_ejemplo> que incluye los datos juzgado - sede, EXPEDIENTE, MATERIA, JUEZ, ESPECIALISTA, " +
+            "DEMANDADO y DEMANDANTE";
 
     private static final String PROMPT_DEFAULT =
             "Por favor, califica la demanda adjunta utilizando los artículos normativos recuperados y siguiendo ESTRICTAMENTE las reglas y la estructura que se detallan a continuación.\n\n" +
 
                     "<instrucciones>\n" +
-                    "1. Extrae de la demanda los datos para la CABECERA (Expediente, Materia, Juez, Especialista, Demandado, Demandante). Si un dato (como el nombre del Juez o Especialista) no aparece en la demanda, utiliza el marcador '[Por designar]'. NUNCA omitas los campos de la cabecera.\n" +
+                    "1. Los datos para la CABECERA (Expediente, Materia, Juez, Especialista, Demandado, Demandante). Serán remitidos en la <plantilla_ejemplo>. No modificar estos datos y NUNCA omitas los campos de la cabecera.\n" +
                     "2. CONTROL SUSTANTIVO OBLIGATORIO DEL INTERÉS PARA OBRAR (antes de evaluar la forma): contrasta el PETITORIO con TODOS los anexos y documentos adjuntos (actas de conciliación extrajudicial, sentencias o autos previos, acuerdos homologados, partidas, contratos, etc.). Si de los anexos se desprende que el demandante YA POSEE, YA OBTUVO o YA TIENE RECONOCIDO aquello que solicita —el derecho o situación pretendida ya está otorgado, reconocido o satisfecho—, la demanda NO puede ser ADMITIDA aunque cumpla todos los requisitos formales, porque existe falta de interés para obrar (pedir lo que ya se tiene no genera tutela útil). En este supuesto NO redactes Auto Admisorio: califica la demanda como IMPROCEDENTE (Art. 427 CPC, falta de interés para obrar) o INADMISIBLE según corresponda al caso concreto, eligiendo la vía que mejor proteja la tutela y JUSTIFICANDO expresamente tu elección. Debes citar el documento anexo concreto que acredita que el petitorio ya está satisfecho e indicar que la vía idónea es la modificación, variación o reconsideración de lo ya acordado, no una pretensión nueva sobre lo ya obtenido.\n" +
                     "3. Evalúa la demanda paso a paso utilizando la <guia_de_calificacion>.\n" +
                     "4. Si la demanda incumple requisitos del Art. 427 CPC (incluida la falta de interés para obrar detectada en el paso 2), redacta una resolución de IMPROCEDENCIA.\n" +
@@ -158,8 +159,8 @@ public class GeminiServiceImpl implements GeminiService {
                     "  \"RESOLUCIÓN NÚMERO...\", lugar y fecha en letras, considerandos numerados con subtítulos \n" +
                     "  (tutela jurisdiccional, calificación de la demanda, legitimidad, competencia, etc.) y \n" +
                     "  parte resolutiva con numerales romanos.\n" +
-                    "- La cabecera DEBE incluir: juzgado y sede, EXPEDIENTE, MATERIA, JUEZ, ESPECIALISTA, \n" +
-                    "  DEMANDADO y DEMANDANTE, tomados exclusivamente de <datos_expediente> con excepción de juzgado este tomarlo de la plantilla de ejemplo.\n" +
+                    "- La cabecera DEBE incluir: juzgado - sede, EXPEDIENTE, MATERIA, JUEZ, ESPECIALISTA, \n" +
+                    "  DEMANDADO y DEMANDANTE, tomados exclusivamente de la plantilla de ejemplo (No modificar estos datos).\n" +
                     "- Cita los artículos aplicables apoyándote en <guia_de_calificacion> y <normativa_recuperada>; \n" +
                     "  no cites normas que no figuren en esos contextos ni en la demanda.\n" +
                     "- Cuando rechaces la demanda por falta de interés para obrar (petitorio ya satisfecho), incluye un \n" +
@@ -211,13 +212,27 @@ public class GeminiServiceImpl implements GeminiService {
 
         configurations.setRoleSystem(ROLE_SYSTEM);
         configurations.setPromptDefault(PROMPT_DEFAULT);
-        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Número_de_Expediente]", input.getXformato()));
+
+        if(input.getXformato() != null && !input.getXformato().trim().isEmpty())
+            configurations.setPromptDefault(configurations.getPromptDefault().replace("[Número_de_Expediente]", input.getXformato()));
+
+        if(input.getXnomInstancia() != null && !input.getXnomInstancia().trim().isEmpty())
         configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_de_Juzgado]", input.getXnomInstancia()));
-        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Materia_de_la_demanda]", input.getXdescMateria()));
-        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_del_Juez]", input.getXdescJuez()));
-        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_del_Especialista]", input.getXdescEspecialista()));
-        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_completo_Demandado]", input.getXdescDemandado()));
-        configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_completo_Demandante]", input.getXdescDemandante()));
+
+        if(input.getXdescMateria() != null && !input.getXdescMateria().trim().isEmpty())
+            configurations.setPromptDefault(configurations.getPromptDefault().replace("[Materia_de_la_demanda]", input.getXdescMateria()));
+
+        if(input.getXdescJuez() != null && !input.getXdescJuez().trim().isEmpty())
+            configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_del_Juez]", input.getXdescJuez()));
+
+        if(input.getXdescEspecialista() != null && !input.getXdescEspecialista().trim().isEmpty())
+            configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_del_Especialista]", input.getXdescEspecialista()));
+
+        if(input.getXdescDemandado() != null && !input.getXdescDemandado().trim().isEmpty())
+            configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_completo_Demandado]", input.getXdescDemandado()));
+
+        if(input.getXdescDemandante() != null && !input.getXdescDemandante().trim().isEmpty())
+            configurations.setPromptDefault(configurations.getPromptDefault().replace("[Nombre_completo_Demandante]", input.getXdescDemandante()));
 
         DemandasCalificadas demanda = new DemandasCalificadas();
         LocalDateTime fechaSend = LocalDateTime.now();
