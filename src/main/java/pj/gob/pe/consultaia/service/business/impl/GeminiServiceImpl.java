@@ -190,6 +190,11 @@ public class GeminiServiceImpl implements GeminiService {
                     "[Fallo correspondiente: Admitir, declarar inadmisible otorgando plazo, o rechazar la demanda].\n" +
                     "</plantilla_ejemplo>\n\n" +
 
+                    "<estilos_documento>\n" +
+                    "- Todos los datos de la cabecera, incluso hasta la ciudad y fecha deben de pintarse en negrita.\n" +
+                    "- En la sección de contenido, todos los títulos deben de pintarse con negrita.\n" +
+                    "<estilos_documento>\n\n" +
+
                     "Basado en esto, redacta la resolución final.";
 
     @Override

@@ -38,6 +38,9 @@ public final class DocxGeneratorUtil {
     private static void writeLine(XWPFDocument doc, String line) {
         XWPFParagraph paragraph = doc.createParagraph();
         paragraph.setAlignment(ParagraphAlignment.BOTH);
+        // Se elimina el "espacio después del párrafo" que el estilo Normal de Word
+        // aplica por defecto (8pt), para que las líneas no queden tan separadas.
+        paragraph.setSpacingAfter(0);
 
         if (line == null || line.trim().isEmpty()) {
             return;
