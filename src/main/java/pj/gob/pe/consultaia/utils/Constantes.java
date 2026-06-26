@@ -40,4 +40,9 @@ public class Constantes {
     public static final Integer CALIFICACION_DEMANDA_ERROR_FILE_NOT_FOUND = 2;
     public static final Integer CALIFICACION_DEMANDA_ERROR_GEMINY = 3;
 
+    public static final Integer GENERACION_SENTENCIA_INICIADA = 0;
+    public static final Integer GENERACION_SENTENCIA_EXITOSA = 1;
+    public static final Integer GENERACION_SENTENCIA_ERROR_FILE_NOT_FOUND = 2;
+    public static final Integer GENERACION_SENTENCIA_ERROR_GEMINY = 3;
+
 }
