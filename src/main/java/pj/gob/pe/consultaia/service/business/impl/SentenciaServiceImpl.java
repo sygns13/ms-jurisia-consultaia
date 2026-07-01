@@ -27,6 +27,8 @@ import com.google.cloud.vertexai.generativeai.ResponseHandler;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.threeten.bp.Duration;
@@ -46,9 +48,12 @@ import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.Constantes;
 import pj.gob.pe.consultaia.utils.DocxGeneratorUtil;
 import pj.gob.pe.consultaia.utils.PdfMergeUtil;
+import pj.gob.pe.consultaia.utils.beans.inputs.InputDescargaSentencia;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputGeneracionSentencia;
+import pj.gob.pe.consultaia.utils.beans.inputs.InputListadoDemandasSentencias;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseGeneracionSentencia;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseGeneracionSentenciaDocx;
+import pj.gob.pe.consultaia.utils.beans.responses.ResponseListadoDemandaSentencia;
 import pj.gob.pe.consultaia.utils.beans.responses.ResponseLogin;
 import pj.gob.pe.consultaia.utils.beans.responses.UserLogin;
 
@@ -60,6 +65,7 @@ import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.util.*;
 
 /**
@@ -329,6 +335,94 @@ public class SentenciaServiceImpl implements SentenciaService {
         response.setNombreArchivo(nombreArchivo);
 
         return response;
+    }
+
+    @Override
+    public Page<ResponseListadoDemandaSentencia> listarDemandasSentencias(InputListadoDemandasSentencias input,
+                                                                          Pageable pageable,
+                                                                          String sessionId) throws Exception {
+
+        ResponseLogin responseLogin = validarSesion(sessionId);
+        Long userId = responseLogin.getUser().getIdUser();
+
+        InputListadoDemandasSentencias filtros = input != null ? input : new InputListadoDemandasSentencias();
+
+        // Los filtros llegan como fecha (yyyy-MM-dd) pero fechaSend es datetime: se expande el rango
+        // al inicio del día inicial y al fin del día final (ambos inclusive).
+        LocalDateTime fechaDesde = filtros.getFechaInicial() != null
+                ? filtros.getFechaInicial().atStartOfDay() : null;
+        LocalDateTime fechaHasta = filtros.getFechaFinal() != null
+                ? filtros.getFechaFinal().atTime(LocalTime.MAX) : null;
+
+        Page<DemandasSentencias> pagina = demandasSentenciasDAO.listarPorFiltros(
+                userId, fechaDesde, fechaHasta, filtros.getAnio(), filtros.getExpNro(), pageable);
+
+        return pagina.map(ResponseListadoDemandaSentencia::fromEntity);
+    }
+
+    @Override
+    public ResponseGeneracionSentenciaDocx descargarSentenciaDocx(InputDescargaSentencia input, String sessionId) throws Exception {
+
+        ResponseLogin responseLogin = validarSesion(sessionId);
+        Long userId = responseLogin.getUser().getIdUser();
+
+        DemandasSentencias sentencia = demandasSentenciasDAO.listarPorId(input.getId());
+
+        if (sentencia == null) {
+            throw new ValidationServiceException("No se encontró la sentencia de demanda solicitada");
+        }
+
+        // La sentencia solo puede ser descargada por el usuario propietario del registro.
+        if (sentencia.getUserId() == null || !sentencia.getUserId().equals(userId)) {
+            throw new ValidationSessionServiceException("La sentencia de demanda no pertenece al usuario de la sesión");
+        }
+
+        byte[] docxBytes = DocxGeneratorUtil.textToDocx(sentencia.getResponse());
+
+        String expediente = sentencia.getXformato() != null ? sentencia.getXformato() : "";
+        String nombreArchivo = String.format("%s_sentencia_demanda.docx", expediente);
+
+        ResponseGeneracionSentenciaDocx response = new ResponseGeneracionSentenciaDocx();
+        response.setDocumento(docxBytes);
+        response.setNombreArchivo(nombreArchivo);
+
+        return response;
+    }
+
+    @Override
+    public Page<ResponseListadoDemandaSentencia> listarUltimaVersionDemandasSentencias(InputListadoDemandasSentencias input,
+                                                                                       Pageable pageable,
+                                                                                       String sessionId) throws Exception {
+
+        ResponseLogin responseLogin = validarSesion(sessionId);
+        Long userId = responseLogin.getUser().getIdUser();
+
+        InputListadoDemandasSentencias filtros = input != null ? input : new InputListadoDemandasSentencias();
+
+        // Los filtros llegan como fecha (yyyy-MM-dd) pero fechaSend es datetime: se expande el rango
+        // al inicio del día inicial y al fin del día final (ambos inclusive).
+        LocalDateTime fechaDesde = filtros.getFechaInicial() != null
+                ? filtros.getFechaInicial().atStartOfDay() : null;
+        LocalDateTime fechaHasta = filtros.getFechaFinal() != null
+                ? filtros.getFechaFinal().atTime(LocalTime.MAX) : null;
+
+        Page<DemandasSentencias> pagina = demandasSentenciasDAO.listarUltimaVersionPorNunico(
+                userId, fechaDesde, fechaHasta, filtros.getAnio(), filtros.getExpNro(), pageable);
+
+        return pagina.map(ResponseListadoDemandaSentencia::fromEntity);
+    }
+
+    @Override
+    public List<ResponseListadoDemandaSentencia> listarSentenciasPorNunico(Long nUnico, String sessionId) throws Exception {
+
+        ResponseLogin responseLogin = validarSesion(sessionId);
+        Long userId = responseLogin.getUser().getIdUser();
+
+        List<DemandasSentencias> registros = demandasSentenciasDAO.listarPorNunico(userId, nUnico);
+
+        return registros.stream()
+                .map(ResponseListadoDemandaSentencia::fromEntity)
+                .toList();
     }
 
     /**
