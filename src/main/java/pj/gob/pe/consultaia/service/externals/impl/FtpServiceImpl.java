@@ -112,6 +112,98 @@ public class FtpServiceImpl implements FtpService {
         }
     }
 
+    @Override
+    public List<byte[]> descargarArchivosRutaAll(List<String> nombresArchivo) throws Exception {
+
+        if (nombresArchivo == null || nombresArchivo.isEmpty()) {
+            throw new ValidationServiceException("Se requiere al menos un nombre de archivo (archivos)");
+        }
+        List<byte[]> archivos = new ArrayList<>(nombresArchivo.size());
+
+        try {
+            for (String nombreArchivoFull : nombresArchivo) {
+
+                // 1. Encontrar la posición de la última barra oblicua '/'
+                int lastSlashIndex = nombreArchivoFull.lastIndexOf('/');
+                String rutaCompleta = "";
+                String nombreArchivo = "";
+
+                // 2. Extraer las partes si se encontró la barra
+                if (lastSlashIndex != -1) {
+                    // Desde el inicio (0) hasta justo antes de la última barra
+                    rutaCompleta = nombreArchivoFull.substring(0, lastSlashIndex);
+
+                    // Desde el carácter siguiente a la última barra hasta el final
+                    nombreArchivo = nombreArchivoFull.substring(lastSlashIndex + 1);
+                } else {
+                    System.out.println("No se encontró una ruta válida.");
+                    throw new IOException("No se encontró una ruta válida para el archivo: " + nombreArchivoFull);
+                }
+
+                FtpConnectionInfo info = parseFtpUri(rutaCompleta);
+                FTPClient ftpClient = new FTPClient();
+
+                ftpClient.setConnectTimeout(30000);
+                ftpClient.setDefaultTimeout(60000);
+                ftpClient.connect(info.host, info.port);
+
+                int replyCode = ftpClient.getReplyCode();
+                if (!FTPReply.isPositiveCompletion(replyCode)) {
+                    ftpClient.disconnect();
+                    throw new IOException("El servidor FTP rechazó la conexión. Código: " + replyCode);
+                }
+
+                boolean login = ftpClient.login(info.user, info.password);
+                if (!login) {
+                    throw new IOException("Credenciales FTP inválidas para usuario: " + info.user);
+                }
+
+                ftpClient.enterLocalPassiveMode();
+                ftpClient.setFileType(FTP.BINARY_FILE_TYPE);
+                ftpClient.setSoTimeout(60000);
+
+                if (info.path != null && !info.path.isEmpty()) {
+                    boolean changed = ftpClient.changeWorkingDirectory(info.path);
+                    if (!changed) {
+                        throw new IOException("No se pudo acceder al directorio FTP: " + info.path);
+                    }
+                }
+
+                if (nombreArchivo == null || nombreArchivo.isEmpty()) {
+                    throw new ValidationServiceException("La lista de archivos contiene un nombre vacío o nulo");
+                }
+
+                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+                boolean retrieved = ftpClient.retrieveFile(nombreArchivo, outputStream);
+
+                if (!retrieved) {
+                    throw new IOException("No se pudo descargar el archivo: " + nombreArchivo
+                            + " (replyCode=" + ftpClient.getReplyCode() + ")");
+                }
+
+                byte[] bytes = outputStream.toByteArray();
+
+                if (bytes.length == 0) {
+                    throw new IOException("El archivo descargado está vacío: " + nombreArchivo);
+                }
+
+                archivos.add(bytes);
+                try {
+                    if (ftpClient.isConnected()) {
+                        ftpClient.logout();
+                        ftpClient.disconnect();
+                    }
+                } catch (IOException ex) {
+                    logger.warn("Error cerrando conexión FTP: {}", ex.getMessage());
+                }
+            }
+        } catch (IOException ex) {
+            logger.warn("Error cerrando conexión FTP: {}", ex.getMessage());
+        }
+
+        return archivos;
+    }
+
     private FtpConnectionInfo parseFtpUri(String rutaCompleta) throws Exception {
         URI uri = new URI(rutaCompleta);
 

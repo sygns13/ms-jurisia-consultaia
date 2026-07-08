@@ -26,9 +26,9 @@ public class InputGeneracionSentencia {
     @Schema(description = "Tipo de expediente", example = "Fisico")
     private String tipoExpediente;
 
-    @NotNull(message = "rutaCompleta es requerida")
-    @Schema(description = "Ruta FTP completa (incluye credenciales y carpeta)", example = "ftp://ncpp:123456@172.17.16.201/2026/05/2026002720201133/")
-    private String rutaCompleta;
+    //@NotNull(message = "rutaCompleta es requerida")
+    //@Schema(description = "Ruta FTP completa (incluye credenciales y carpeta)", example = "ftp://ncpp:123456@172.17.16.201/2026/05/2026002720201133/")
+    //private String rutaCompleta;
 
     @Schema(description = "Formato del expediente", example = "00272-2026-0-0201-JR-FC-01")
     private String xformato;

@@ -11,4 +11,6 @@ public interface FtpService {
      * respetando el orden de la lista recibida.
      */
     List<byte[]> descargarArchivos(String rutaCompleta, List<String> nombresArchivo) throws Exception;
+
+    List<byte[]> descargarArchivosRutaAll(List<String> nombresArchivo) throws Exception;
 }

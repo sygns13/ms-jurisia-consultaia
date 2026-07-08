@@ -235,7 +235,8 @@ public class SentenciaServiceImpl implements SentenciaService {
         sentencia.setAnio(input.getAnio());
         sentencia.setExpNro(input.getExpNro());
         sentencia.setTipoExpediente(input.getTipoExpediente());
-        sentencia.setRutaCompleta(input.getRutaCompleta());
+        //sentencia.setRutaCompleta(input.getRutaCompleta());
+        sentencia.setRutaCompleta("");
         sentencia.setXformato(input.getXformato());
         sentencia.setCclave(input.getCclave());
         sentencia.setXnomInstancia(input.getXnomInstancia());
@@ -263,7 +264,7 @@ public class SentenciaServiceImpl implements SentenciaService {
         try {
             // Una demanda puede estar formada por 1..n archivos PDF. Se descargan todos desde
             // la misma ruta FTP (una sola conexión) en el orden recibido y se unen en un solo PDF.
-            List<byte[]> pdfsDescargados = ftpService.descargarArchivos(input.getRutaCompleta(), input.getArchivos());
+            List<byte[]> pdfsDescargados = ftpService.descargarArchivosRutaAll(input.getArchivos());
             pdfBytes = PdfMergeUtil.unir(pdfsDescargados);
         } catch (Exception ex) {
             logger.error("Error descargando archivo FTP: {}", ex.getMessage(), ex);
