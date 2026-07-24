@@ -42,6 +42,7 @@ import pj.gob.pe.consultaia.model.entities.Configurations;
 import pj.gob.pe.consultaia.model.entities.DemandasCalificadas;
 import pj.gob.pe.consultaia.service.business.ChunkStoreService;
 import pj.gob.pe.consultaia.service.business.GeminiService;
+import pj.gob.pe.consultaia.service.business.JurisprudenciaStoreService;
 import pj.gob.pe.consultaia.service.externals.FtpService;
 import pj.gob.pe.consultaia.service.externals.GcsStorageService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
@@ -82,6 +83,7 @@ public class GeminiServiceImpl implements GeminiService {
     private final ConfigProperties properties;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final ChunkStoreService chunkStoreService;
+    private final JurisprudenciaStoreService jurisprudenciaStoreService;
     private final GcsStorageService gcsStorageService;
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -303,7 +305,7 @@ public class GeminiServiceImpl implements GeminiService {
 
         String fullText;
         try {
-            fullText = invocarGemini(pdfBytes, configurations);
+            fullText = invocarGemini(pdfBytes, configurations, input.getCmateria());
         } catch (Exception ex) {
             logger.error("Error invocando Gemini: {}", ex.getMessage(), ex);
             demanda.setStatus(Constantes.CALIFICACION_DEMANDA_ERROR_GEMINY);
@@ -481,14 +483,16 @@ public class GeminiServiceImpl implements GeminiService {
      *  Fase 1 - Gemini extrae los conceptos jurídicos clave de la demanda (SDK Vertex AI, REST).
      *  Fase 2 - Se generan embeddings de esos conceptos (Vertex AI Prediction REST).
      *  Fase 3 - Búsqueda vectorial en el índice de normativa (Vector Search findNeighbors REST).
-     *  Fase 4 - Gemini redacta la resolución de calificación con la normativa recuperada, usando
-     *           el modelo, roleSystem, promptDefault, temperature y maxOutputTokens de la BD.
+     *  Fase 4 - Gemini redacta la resolución de calificación con la normativa recuperada más
+     *           ejemplos reales de resoluciones del juzgado (jurisprudencia anonimizada,
+     *           seleccionada por cmateria desde Redis), usando el modelo, roleSystem,
+     *           promptDefault, temperature y maxOutputTokens de la BD.
      *
      * Nota de transporte: Embeddings y Vector Search se invocan por REST crudo (no GAPIC) porque
      * en google-cloud-aiplatform MatchServiceSettings/PredictionServiceSettings (v1) solo exponen
      * transporte gRPC. El REST crudo reutiliza el mismo NetHttpTransport con proxy del SDK de Gemini.
      */
-    private String invocarGemini(byte[] pdfBytes, Configurations configurations) throws IOException {
+    private String invocarGemini(byte[] pdfBytes, Configurations configurations, String cmateria) throws IOException {
 
         // Diagnóstico: tamaño del PDF y estimación de bytes en el cable. El PDF se incrusta inline
         // en base64 (~+33%) y se envía DOS veces (Fase 1 + Fase 4); este es el factor dominante de
@@ -595,6 +599,11 @@ public class GeminiServiceImpl implements GeminiService {
             // ============================================================
             String contextoLeyes = chunkStoreService.construirContextoLegal(idsRecuperados);
 
+            // Ejemplos reales anonimizados del juzgado (few-shot), seleccionados por la
+            // materia del expediente desde Redis. Si no hay cmateria o ejemplos para esa
+            // materia, el bloque queda vacío y el prompt se arma sin la sección.
+            String ejemplosJurisprudencia = jurisprudenciaStoreService.construirEjemplos(cmateria);
+
             float temperatureValue = configurations.getTemperature() != null
                     ? configurations.getTemperature().floatValue()
                     : 0.0f;
@@ -611,12 +620,24 @@ public class GeminiServiceImpl implements GeminiService {
                     .withSystemInstruction(ContentMaker.fromString(configurations.getRoleSystem()))
                     .withGenerationConfig(generationConfig);
 
+            String seccionEjemplos = ejemplosJurisprudencia.isEmpty() ? "" : String.format(
+                    "EJEMPLOS DE RESOLUCIONES REALES DE ESTE JUZGADO (misma materia, anonimizadas):%n" +
+                            "Úsalos como referencia de estructura, estilo de redacción, desarrollo de considerandos " +
+                            "y criterio de calificación del juzgado. Los marcadores entre corchetes " +
+                            "([DEMANDANTE], [DEMANDADO], [MENOR-1], [JUEZ], [DNI], [EXPEDIENTE], [DIRECCION-1], etc.) " +
+                            "son datos anonimizados de los ejemplos: NUNCA los copies en tu resolución. " +
+                            "Los datos reales de la cabecera provienen EXCLUSIVAMENTE de la <plantilla_ejemplo> " +
+                            "y los hechos provienen EXCLUSIVAMENTE de la demanda adjunta.%n%s%n%n",
+                    ejemplosJurisprudencia
+            );
+
             String promptEnriquecido = String.format(
                     "INSTRUCCIONES DEL JUZGADO:%n%s%n%n" +
                             "NORMATIVA LEGAL ESTRICTA A APLICAR:%n%s%n%n" +
+                            "%s" +
                             "TAREA:%nAnaliza el documento PDF adjunto basándote exclusivamente en la normativa " +
                             "proporcionada y redacta la resolución de calificación de demanda.",
-                    configurations.getPromptDefault(), contextoLeyes
+                    configurations.getPromptDefault(), contextoLeyes, seccionEjemplos
             );
 
             String resolucionFinal = ResponseHandler.getText(
