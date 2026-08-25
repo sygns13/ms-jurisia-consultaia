@@ -75,10 +75,14 @@ import java.util.*;
  * ({@code geminy_sentencia_1}), tabla ({@link DemandasSentencias}), tópico Kafka y timeout mayor.
  *
  * Diferencias clave respecto a la calificación:
- *  - El prompt solicita redactar la SENTENCIA (no la calificación/auto admisorio).
+ *  - El prompt solicita redactar la SENTENCIA (no la calificación/auto admisorio), con la estructura
+ *    completa de las sentencias de la Corte Superior de Justicia de Áncash: cabecera, VISTOS, parte
+ *    expositiva, parte considerativa con considerandos numerados y un bloque por punto controvertido,
+ *    y parte resolutiva con el fallo en numerales romanos.
  *  - NO se inyectan los artículos estáticos de requisitos de calificación (CPC 424/425/427/130);
  *    el contexto legal proviene únicamente de la búsqueda vectorial dinámica.
- *  - Timeout un poco mayor que la calificación (7 min RPC / 15 min total).
+ *  - Timeout bastante mayor que la calificación (15 min RPC / 25 min total), porque la sentencia se
+ *    redacta completa y puede llegar a 65535 tokens de salida.
  */
 @Service
 @RequiredArgsConstructor
@@ -111,72 +115,236 @@ public class SentenciaServiceImpl implements SentenciaService {
      * Alimenta la búsqueda vectorial de normativa sustantiva aplicable al fondo de la sentencia.
      */
     private static final String PROMPT_EXTRACCION_CONCEPTOS =
-            "Lee la demanda adjunta, INCLUYENDO sus anexos. Tu objetivo es generar términos de búsqueda para un sistema de RAG vectorial de normativa peruana, " +
-                    "orientado a resolver el FONDO del asunto (no a calificar la admisibilidad). " +
-                    "Extrae: 1) La pretensión y el tipo de proceso. 2) Las instituciones jurídicas sustantivas involucradas (causales, derechos, obligaciones). " +
-                    "3) Los hechos relevantes y los medios probatorios ofrecidos que sustentan o contradicen la pretensión. " +
+            "Lee el expediente adjunto (demanda, anexos, contestación, actas de audiencia, informes técnicos y dictamen fiscal). " +
+                    "Tu objetivo es generar términos de búsqueda para un sistema de RAG vectorial de normativa peruana, " +
+                    "orientado a resolver el FONDO del asunto y a redactar la SENTENCIA (no a calificar la admisibilidad). " +
+                    "Extrae: 1) La pretensión principal, las pretensiones accesorias y el tipo de proceso. " +
+                    "2) Las instituciones jurídicas sustantivas involucradas (causales, derechos, obligaciones, presupuestos). " +
+                    "3) Las instituciones procesales que sustentan la sentencia: tutela jurisdiccional efectiva, finalidad del proceso, " +
+                    "fijación de puntos controvertidos, carga de la prueba y valoración conjunta de los medios probatorios. " +
+                    "4) Si el proceso involucra niños, niñas o adolescentes: interés superior del niño, derecho a ser oído, tenencia, " +
+                    "régimen de visitas, alimentos y quantum alimentario, según corresponda. " +
+                    "5) Los hechos relevantes y los medios probatorios ofrecidos y actuados que sustentan o contradicen la pretensión. " +
                     "Responde ÚNICAMENTE con una lista de palabras clave y artículos legales relevantes separados por comas, sin explicaciones ni viñetas.";
 
-    private static final String ROLE_SYSTEM = "Eres un Asistente Judicial Virtual experto en derecho procesal y sustantivo peruano. " +
-            "Tu función es redactar SENTENCIAS resolviendo el fondo de la controversia a partir de la demanda y sus anexos, " +
-            "valorando los hechos y los medios probatorios frente a la normativa vigente. \n" +
-            "REGLA ESTRICTA: Tu respuesta debe ser ÚNICAMENTE el borrador de la sentencia judicial. DEBES respetar rigurosamente " +
-            "la estructura formal de las sentencias judiciales peruanas, incluyendo siempre una cabecera la cual no debe ser modificada " +
-            "y debe enviar tal cual los datos se presentan en la <plantilla_ejemplo> que incluye los datos juzgado - sede, EXPEDIENTE, MATERIA, JUEZ, ESPECIALISTA, " +
-            "DEMANDADO y DEMANDANTE";
+    private static final String ROLE_SYSTEM = "Eres un Asistente Judicial Virtual experto en derecho procesal y sustantivo peruano, " +
+            "con experiencia en la redacción de sentencias de los juzgados de la Corte Superior de Justicia de Áncash (Poder Judicial del Perú). " +
+            "Tu función es redactar PROYECTOS DE SENTENCIA que resuelvan el fondo de la controversia a partir del expediente adjunto " +
+            "(demanda, anexos, contestación, actas de audiencia, informes técnicos del Equipo Multidisciplinario y dictamen fiscal), " +
+            "valorando individualmente los hechos y los medios probatorios frente a la normativa vigente.\n" +
+            "REGLA ESTRICTA: Tu respuesta debe ser ÚNICAMENTE el borrador de la sentencia judicial, sin preámbulos, comentarios ni " +
+            "explicaciones sobre cómo la elaboraste.\n" +
+            "DEBES respetar rigurosamente la estructura formal de las sentencias judiciales peruanas: cabecera, SENTENCIA, " +
+            "RESOLUCIÓN NÚMERO, lugar y fecha, VISTOS, PARTE EXPOSITIVA, PARTE CONSIDERATIVA con considerandos numerados correlativos " +
+            "y subtítulos, y PARTE RESOLUTIVA con el fallo en numerales romanos.\n" +
+            "La cabecera no debe ser modificada: debes enviar tal cual los datos que se presentan en la <plantilla_ejemplo>, que incluye " +
+            "los datos juzgado - sede, EXPEDIENTE, MATERIA, JUEZ, ESPECIALISTA, DEMANDADO y DEMANDANTE.\n" +
+            "La sentencia debe ser EXHAUSTIVA y AUTOSUFICIENTE: nunca resumas, nunca uses expresiones como \"etc.\", \"entre otros\" o " +
+            "\"se omite por brevedad\", y nunca dejes una sección incompleta.";
 
     private static final String PROMPT_DEFAULT =
-            "Por favor, redacta la SENTENCIA de la demanda adjunta apoyándote en la normativa recuperada y siguiendo ESTRICTAMENTE las reglas y la estructura que se detallan a continuación.\n\n" +
+            "Redacta el PROYECTO DE SENTENCIA del expediente adjunto, apoyándote en la <normativa_recuperada> y siguiendo ESTRICTAMENTE\n" +
+                    "las reglas, la estructura y el nivel de detalle que se detallan a continuación. El resultado debe ser indistinguible, en\n" +
+                    "forma y extensión, de una sentencia real de la Corte Superior de Justicia de Áncash.\n\n" +
 
                     "<instrucciones>\n" +
-                    "1. Los datos para la CABECERA (Expediente, Materia, Juez, Especialista, Demandado, Demandante) serán remitidos en la <plantilla_ejemplo>. No modificar estos datos y NUNCA omitas los campos de la cabecera.\n" +
-                    "2. Identifica con precisión el PETITORIO y la causa de pedir a partir de la demanda y sus anexos.\n" +
-                    "3. Establece los PUNTOS CONTROVERTIDOS que deben resolverse.\n" +
-                    "4. Valora los HECHOS y los MEDIOS PROBATORIOS ofrecidos, indicando qué acreditan y su pertinencia respecto del petitorio.\n" +
-                    "5. Aplica el DERECHO al caso concreto, fundamentando jurídicamente la decisión con la <normativa_recuperada> y la normativa citada en la propia demanda.\n" +
-                    "6. Redacta una DECISIÓN (FALLO) congruente con el petitorio y con la fundamentación: declara FUNDADA, FUNDADA EN PARTE o INFUNDADA la demanda, precisando los efectos.\n" +
+                    "1. Los datos para la CABECERA (Juzgado, Expediente, Materia, Juez, Especialista, Demandado, Demandante) serán remitidos en\n" +
+                    "   la <plantilla_ejemplo>. No modifiques estos datos y NUNCA omitas los campos de la cabecera. Las líneas ABOGADO, MENOR y\n" +
+                    "   MINISTERIO PÚBLICO no se remiten: inclúyelas SOLO si constan en el expediente adjunto y, si no constan, suprime la línea\n" +
+                    "   completa (no escribas marcas de dato faltante en la cabecera).\n" +
+                    "2. Lee ÍNTEGRAMENTE el expediente adjunto: demanda y subsanaciones, anexos, auto admisorio, cédulas de notificación,\n" +
+                    "   contestación y sus anexos, actas de audiencia (única, de continuación, de informes orales, de toma de opinión o cámara\n" +
+                    "   Gesell), informes psicológicos e informes sociales del Equipo Multidisciplinario, dictamen fiscal y demás resoluciones.\n" +
+                    "3. Identifica con precisión el PETITORIO (pretensión principal y pretensiones accesorias), la causa de pedir, los fundamentos\n" +
+                    "   de la defensa y la actividad procesal cronológica, siempre con su referencia de folios.\n" +
+                    "4. Reproduce los PUNTOS CONTROVERTIDOS exactamente como fueron fijados en la audiencia única, citando el acta y sus folios.\n" +
+                    "   Si el expediente no los contiene, formúlalos a partir del petitorio y la contestación y déjalo expresamente indicado.\n" +
+                    "5. Desarrolla la PARTE CONSIDERATIVA con considerandos NUMERADOS CORRELATIVOS (1, 2, 3, ...) agrupados bajo subtítulos:\n" +
+                    "   primero el marco jurídico aplicable y luego un bloque de análisis independiente por CADA punto controvertido.\n" +
+                    "6. Valora los MEDIOS PROBATORIOS uno por uno, identificándolos por su denominación, número y folios (por ejemplo:\n" +
+                    "   \"Informe Psicológico N° 009-2026-EM-CSJAN-PJ-PS, obrante de folios 88/92\"), precisando qué acredita cada uno, su\n" +
+                    "   pertinencia respecto del punto controvertido y por qué se le otorga o no valor probatorio. Cuando el expediente contenga\n" +
+                    "   informes técnicos, transcribe entre comillas sus conclusiones pertinentes antes de analizarlas.\n" +
+                    "7. Aplica el DERECHO al caso concreto: fundamenta cada conclusión con los artículos de la <normativa_recuperada>, con las\n" +
+                    "   normas invocadas en la demanda y en la contestación, y con la doctrina, jurisprudencia, casaciones, plenos casatorios o\n" +
+                    "   sentencias del Tribunal Constitucional que consten en el expediente o en la normativa recuperada.\n" +
+                    "8. Pondera expresamente el dictamen fiscal cuando exista, señalando si se concuerda total o parcialmente con él.\n" +
+                    "9. Cierra cada bloque de análisis con una conclusión expresa del tipo \"Quedando dilucidado el [primer/segundo/...] punto\n" +
+                    "   controvertido\", y antes del fallo consolida la conclusión general del caso.\n" +
+                    "10. Redacta una DECISIÓN (FALLO) congruente con el petitorio y con la fundamentación: declara FUNDADA, FUNDADA EN PARTE o\n" +
+                    "    INFUNDADA la demanda (y cada pretensión accesoria por separado), con mandatos concretos y ejecutables.\n" +
+                    "11. EXTENSIÓN: la sentencia debe ser exhaustiva. Desarrolla cada considerando en párrafos completos de redacción forense; no\n" +
+                    "    produzcas esquemas, listas telegráficas ni resúmenes. Una sentencia de familia típica supera los cincuenta considerandos\n" +
+                    "    cuando el expediente lo permite.\n" +
                     "</instrucciones>\n\n" +
 
+                    "<estructura_obligatoria>\n" +
+                    "Emite SIEMPRE, y en este orden, las siguientes secciones:\n" +
+                    "1. CABECERA institucional: \"CORTE SUPERIOR DE JUSTICIA DE ÁNCASH\", el nombre del juzgado, la línea separadora y el bloque\n" +
+                    "   de datos del expediente (EXPEDIENTE, MATERIA, JUEZ, ESPECIALISTA, [ABOGADO], [MENOR], [MINISTERIO PÚBLICO], DEMANDADO,\n" +
+                    "   DEMANDANTE).\n" +
+                    "2. \"SENTENCIA\", \"RESOLUCIÓN NÚMERO <número en letras>\", y a continuación la ciudad y la fecha en letras.\n" +
+                    "3. VISTOS: párrafo de encabezamiento que identifica el proceso, las partes, la materia, el o los beneficiarios con su edad\n" +
+                    "   entre paréntesis y, de existir, la conformidad total o parcial con el dictamen fiscal y sus folios.\n" +
+                    "4. PARTE EXPOSITIVA, con estos subtítulos:\n" +
+                    "   4.1. \"De la demanda\": fecha del escrito, folios, pretensión y fundamentos de hecho enumerados con literales a), b), c)...\n" +
+                    "        Cada literal debe reproducir con fidelidad y en tercera persona un fundamento de la demanda.\n" +
+                    "   4.2. \"De la contestación de la demanda\": auto admisorio y sus folios, notificación y su constancia, escrito de\n" +
+                    "        contestación con fecha y folios, lo que solicita el demandado y sus fundamentos enumerados con literales. Si el\n" +
+                    "        demandado fue declarado rebelde o no contestó, consígnalo con la resolución que así lo declara.\n" +
+                    "   4.3. \"Actividad judicial\": relación cronológica en viñetas de las resoluciones, audiencias, saneamiento procesal, fijación\n" +
+                    "        de puntos controvertidos, admisión y actuación de medios probatorios, informes psicológicos y sociales, tomas de\n" +
+                    "        opinión, dictamen fiscal y la resolución que deja los autos en despacho para sentenciar.\n" +
+                    "5. PARTE CONSIDERATIVA, con considerandos numerados correlativos agrupados en subtítulos:\n" +
+                    "   5.1. Marco jurídico general y específico, conforme a <marco_juridico_por_materia>.\n" +
+                    "   5.2. \"Sobre los puntos controvertidos\": invocación del artículo 122° del Código Procesal Civil y enumeración de los puntos\n" +
+                    "        fijados, con la referencia al acta de audiencia y sus folios.\n" +
+                    "   5.3. Un subtítulo por cada punto controvertido (\"Sobre el primer punto controvertido\", \"Sobre el segundo punto\n" +
+                    "        controvertido\", ...), con: enunciado literal del punto entre comillas, marco normativo aplicable, valoración\n" +
+                    "        individual de cada medio probatorio con sus folios, doctrina y jurisprudencia pertinente, y conclusión del punto.\n" +
+                    "   5.4. Considerandos finales de cierre: proporcionalidad y razonabilidad de la decisión y, cuando corresponda, determinación\n" +
+                    "        del quantum alimentario o de la modalidad y progresividad del régimen que se fija.\n" +
+                    "6. PARTE RESOLUTIVA: fórmula de estilo \"Estando a las consideraciones precedentes y con lo dispuesto por el artículo 138° de\n" +
+                    "   la Constitución Política del Estado, el/la Señor(a) Juez del [Nombre_de_Juzgado], impartiendo Justicia a nombre de la\n" +
+                    "   Nación, FALLA:\" seguida de numerales romanos (I., II., III., ...) que contengan:\n" +
+                    "   - El fallo sobre la pretensión principal y sobre cada pretensión accesoria.\n" +
+                    "   - Los mandatos concretos derivados del fallo (monto de la pensión en cifras y en letras, fecha desde la que rige, forma y\n" +
+                    "     cuenta de pago, etapas y horarios del régimen de visitas, seguimiento del Equipo Multidisciplinario, etc.).\n" +
+                    "   - Los apercibimientos aplicables (por ejemplo, inscripción en el Registro de Deudores Alimentarios Morosos conforme a la\n" +
+                    "     Primera Disposición Final de la Ley N° 28970, o remisión de copias a la ODANC).\n" +
+                    "   - Las exhortaciones a las partes y las órdenes a los órganos de apoyo.\n" +
+                    "   - El pronunciamiento sobre costas y costos.\n" +
+                    "   - La fórmula final: \"Consentida y/o ejecutoriada que sea la presente sentencia, CÚMPLASE lo ordenado como corresponde.\n" +
+                    "     NOTIFÍQUESE.-\".\n" +
+                    "7. \"NOTAS\": al final, y solo si citaste doctrina o fuentes bibliográficas, la relación numerada de las referencias.\n" +
+                    "</estructura_obligatoria>\n\n" +
+
+                    "<marco_juridico_por_materia>\n" +
+                    "Desarrolla como subtítulos de la parte considerativa ÚNICAMENTE los bloques que correspondan a la materia del proceso:\n" +
+                    "- SIEMPRE: \"Del derecho a la tutela jurisdiccional efectiva\" (artículo I del Título Preliminar del Código Procesal Civil);\n" +
+                    "  \"Finalidad del proceso\" (artículo 139° incisos 3) y 6) de la Constitución y artículo III del Título Preliminar del Código\n" +
+                    "  Procesal Civil); \"De los medios probatorios y de la carga de la prueba\" (artículos 188°, 196° y 197° del Código Procesal\n" +
+                    "  Civil).\n" +
+                    "- PROCESOS CON NIÑOS, NIÑAS O ADOLESCENTES: \"Sobre el derecho convencional\" y \"El interés superior del niño y adolescente\"\n" +
+                    "  (artículo 3 de la Convención sobre los Derechos del Niño, artículo IX del Título Preliminar del Código de los Niños y\n" +
+                    "  Adolescentes, y Ley N° 30466 con su reglamento); \"Sobre la opinión del menor\" (artículo 12 de la Convención sobre los\n" +
+                    "  Derechos del Niño y artículo 85° del Código de los Niños y Adolescentes); y la valoración flexible de la prueba en los\n" +
+                    "  procesos de familia establecida por el Cuarto Pleno Casatorio Civil.\n" +
+                    "- ALIMENTOS: \"Sobre el derecho a los alimentos\" (artículo 25° inciso 1) de la Declaración Universal de Derechos Humanos,\n" +
+                    "  artículo 27° de la Convención sobre los Derechos del Niño, artículo 6° de la Constitución, artículo 92° del Código de los\n" +
+                    "  Niños y Adolescentes y artículo 472° del Código Civil); \"Obligación alimentaria\" (artículos 235°, 423° inciso 1) y 474° del\n" +
+                    "  Código Civil); y \"Presupuestos del quantum alimentario\" (artículo 481° del Código Civil: estado de necesidad del alimentista\n" +
+                    "  y capacidad económica del obligado, incluidas sus demás cargas familiares).\n" +
+                    "- TENENCIA: \"Sobre la tenencia en el Código de los Niños y Adolescentes\" (artículos 81°, 82°, 83°, 84° y 86° del Código de los\n" +
+                    "  Niños y Adolescentes, modificados por la Ley N° 31590), precisando la preferencia legal por la tenencia compartida y el\n" +
+                    "  carácter excepcional de la tenencia exclusiva.\n" +
+                    "- RÉGIMEN DE VISITAS: \"Régimen de visitas\" (artículos 88° y 89° del Código de los Niños y Adolescentes, artículo 422° del\n" +
+                    "  Código Civil y artículo 9° numeral 3 de la Convención sobre los Derechos del Niño), precisando que es principalmente un\n" +
+                    "  derecho del niño y que, ante distanciamiento prolongado o conflictividad coparental, debe fijarse de forma progresiva.\n" +
+                    "- VIOLENCIA FAMILIAR CONCURRENTE: Ley N° 30364 y las medidas de protección vigentes que consten en el expediente.\n" +
+                    "- OTRAS MATERIAS (civil, laboral, comercial, contencioso administrativo, penal, constitucional): sustituye los bloques\n" +
+                    "  especializados anteriores por el marco normativo sustantivo y procesal que corresponda a esa materia, manteniendo el mismo\n" +
+                    "  nivel de profundidad, la misma estructura de secciones y el mismo tratamiento individualizado de la prueba.\n" +
+                    "No cites normas, casaciones ni doctrina que no figuren en la <normativa_recuperada>, en el expediente adjunto o en esta lista.\n" +
+                    "</marco_juridico_por_materia>\n\n" +
+
                     "<reglas_redaccion>\n" +
-                    "- Usa la <plantilla_ejemplo> como modelo de estructura, estilo y formalidades: cabecera, \n" +
-                    "  \"SENTENCIA\", \"RESOLUCIÓN NÚMERO...\", lugar y fecha en letras, parte expositiva (VISTOS), \n" +
-                    "  considerandos numerados con subtítulos (petitorio, puntos controvertidos, valoración de la \n" +
-                    "  prueba, fundamentos jurídicos) y parte resolutiva (DECISIÓN / FALLO).\n" +
-                    "- La cabecera DEBE incluir: juzgado - sede, EXPEDIENTE, MATERIA, JUEZ, ESPECIALISTA, \n" +
-                    "  DEMANDADO y DEMANDANTE, tomados exclusivamente de la plantilla de ejemplo (No modificar estos datos).\n" +
-                    "- Cita los artículos aplicables apoyándote en la <normativa_recuperada> y en las normas invocadas \n" +
-                    "  en la demanda; no cites normas que no figuren en esos contextos.\n" +
-                    "- Resuelve el FONDO del asunto. NO realices control de admisibilidad ni procedibilidad de la \n" +
-                    "  demanda; asume que la demanda ya fue admitida y corresponde sentenciar.\n" +
-                    "- Si un dato no consta, escribe [COMPLETAR: dato]. Prohibido inventar datos, fechas, \n" +
-                    "  enlaces o nombres.\n" +
-                    "- Tu respuesta es ÚNICAMENTE el texto de la sentencia, sin comentarios ni explicaciones. \n" +
+                    "- Escribe en español jurídico peruano, en tercera persona y registro formal forense, evitando el lenguaje coloquial.\n" +
+                    "- El número de resolución, el día, el mes y el año se escriben en letras (por ejemplo: \"RESOLUCIÓN NÚMERO SIETE\",\n" +
+                    "  \"Huaraz, veintiséis de junio\", \"Del año dos mil veinticinco. -\").\n" +
+                    "- Los montos dinerarios se expresan en letras y en cifras (por ejemplo: \"CUATROCIENTOS CINCUENTA CON 00/100 SOLES\n" +
+                    "  (S/ 450.00)\").\n" +
+                    "- Los nombres de las partes se escriben en MAYÚSCULAS en la parte resolutiva y en formato normal en el resto del documento.\n" +
+                    "- Ancla cada afirmación fáctica a su fuente en el expediente mediante la referencia de folios (\"obrante de folios 20/24\").\n" +
+                    "- Las citas normativas, doctrinarias y jurisprudenciales van entre comillas y con indicación precisa de su origen.\n" +
+                    "- Cita los artículos aplicables apoyándote en la <normativa_recuperada> y en las normas invocadas en el expediente; no cites\n" +
+                    "  normas que no figuren en esos contextos ni en <marco_juridico_por_materia>.\n" +
+                    "- Resuelve el FONDO del asunto. NO realices control de admisibilidad ni procedibilidad de la demanda; asume que la demanda ya\n" +
+                    "  fue admitida y corresponde sentenciar.\n" +
+                    "- Prohibido inventar datos, fechas, folios, números de informe, montos, enlaces o nombres. Si un dato necesario no consta en\n" +
+                    "  el expediente, escribe [COMPLETAR: dato] en su lugar, sin interrumpir la redacción de la sentencia.\n" +
+                    "- No incluyas datos operativos que no consten en el expediente (direcciones, teléfonos o números de contacto de los órganos\n" +
+                    "  de apoyo); si necesitas referirlos, usa [COMPLETAR: dato].\n" +
+                    "- Tu respuesta es ÚNICAMENTE el texto de la sentencia, sin comentarios ni explicaciones.\n" +
                     "</reglas_redaccion>\n\n" +
 
                     "<plantilla_ejemplo>\n" +
-                    "[Nombre_de_Juzgado]\n" +
-                    "EXPEDIENTE     : [Número_de_Expediente]\n" +
-                    "MATERIA        : [Materia_de_la_demanda]\n" +
-                    "JUEZ           : [Nombre_del_Juez]\n" +
-                    "ESPECIALISTA   : [Nombre_del_Especialista]\n" +
-                    "DEMANDADO      : [Nombre_completo_Demandado]\n" +
-                    "DEMANDANTE     : [Nombre_completo_Demandante]\n\n" +
-                    "SENTENCIA\n" +
-                    "RESOLUCIÓN NÚMERO [Número]\n" +
-                    "[Ciudad], [Fecha actual]. -\n\n" +
-                    "VISTOS; ...\n" +
-                    "CONSIDERANDO:\n" +
-                    "[Desarrollar petitorio, puntos controvertidos, valoración de los medios probatorios y los fundamentos jurídicos, basándote en la normativa recuperada]\n\n" +
-                    "SE RESUELVE:\n" +
-                    "[Fallo correspondiente: declarar FUNDADA, FUNDADA EN PARTE o INFUNDADA la demanda, con sus efectos].\n" +
+                    "**CORTE SUPERIOR DE JUSTICIA DE ÁNCASH**\n" +
+                    "**[Nombre_de_Juzgado]**\n" +
+                    "**…………………………………………………………..………………………………………….....…………………**\n\n" +
+                    "**EXPEDIENTE          : [Número_de_Expediente]**\n" +
+                    "**MATERIA             : [Materia_de_la_demanda]**\n" +
+                    "**JUEZ                : [Nombre_del_Juez]**\n" +
+                    "**ESPECIALISTA        : [Nombre_del_Especialista]**\n" +
+                    "**ABOGADO             : (incluir esta línea solo si consta en el expediente)**\n" +
+                    "**MENOR               : (incluir esta línea solo si consta en el expediente)**\n" +
+                    "**MINISTERIO PÚBLICO  : (incluir esta línea solo si consta en el expediente)**\n" +
+                    "**DEMANDADO           : [Nombre_completo_Demandado]**\n" +
+                    "**DEMANDANTE          : [Nombre_completo_Demandante]**\n\n" +
+                    "# SENTENCIA\n" +
+                    "**RESOLUCIÓN NÚMERO (número en letras)**\n" +
+                    "**(Ciudad), (día y mes en letras)**\n" +
+                    "**Del año (año en letras). -**\n\n" +
+                    "**VISTOS;** con el expediente seguido por (demandante), sobre (materia), a favor de (beneficiario y su edad), acción que\n" +
+                    "dirige contra (demandado); de conformidad (total o parcial) con lo expuesto en el dictamen fiscal de folios (...).\n\n" +
+                    "## PARTE EXPOSITIVA:\n" +
+                    "### De la demanda\n" +
+                    "Mediante escrito de fecha (...), obrante de folios (...), (demandante) interpone demanda de (materia) contra (demandado),\n" +
+                    "sustentándola en los siguientes fundamentos:\n" +
+                    "a. (fundamento)\n" +
+                    "b. (fundamento)\n" +
+                    "### De la contestación de la demanda\n" +
+                    "Mediante resolución (...) de fecha (...), obrante de folios (...), se admitió a trámite la demanda; notificado el demandado\n" +
+                    "con fecha (...), absolvió el traslado mediante escrito de fecha (...), obrante de folios (...), solicitando que se declare\n" +
+                    "(...); fundamenta su posición indicando que:\n" +
+                    "a. (fundamento)\n" +
+                    "b. (fundamento)\n" +
+                    "### Actividad judicial\n" +
+                    "- (resolución o actuación procesal, con fecha y folios)\n" +
+                    "- (resolución o actuación procesal, con fecha y folios)\n\n" +
+                    "## PARTE CONSIDERATIVA:\n" +
+                    "### Del derecho a la tutela jurisdiccional efectiva\n" +
+                    "1. (desarrollo)\n" +
+                    "### Finalidad del proceso\n" +
+                    "2. (desarrollo)\n" +
+                    "### (demás subtítulos del marco jurídico que correspondan a la materia)\n" +
+                    "3. (desarrollo)\n" +
+                    "### Sobre los puntos controvertidos\n" +
+                    "N. Estando a lo dispuesto por el artículo 122° del Código Procesal Civil, se procede a dilucidar los puntos controvertidos\n" +
+                    "fijados en la audiencia única obrante de folios (...), siendo los siguientes: I) (...). II) (...). III) (...).\n" +
+                    "### Sobre el primer punto controvertido\n" +
+                    "N+1. Respecto al primer punto controvertido, consistente en: \"(...)\"; (marco normativo, valoración individual de cada medio\n" +
+                    "probatorio con sus folios, doctrina y jurisprudencia).\n" +
+                    "N+2. (continuación del análisis)\n" +
+                    "N+3. En consecuencia, (...). Quedando dilucidado el primer punto controvertido.\n" +
+                    "### Sobre el segundo punto controvertido\n" +
+                    "(mismo tratamiento, y así sucesivamente con todos los puntos controvertidos)\n\n" +
+                    "## PARTE RESOLUTIVA:\n" +
+                    "Estando a las consideraciones precedentes y con lo dispuesto por el artículo 138° de la Constitución Política del Estado,\n" +
+                    "el/la Señor(a) Juez del [Nombre_de_Juzgado], impartiendo Justicia a nombre de la Nación, **FALLA:**\n" +
+                    "**I. DECLARANDO (FUNDADA / FUNDADA EN PARTE / INFUNDADA)** la demanda de (materia) interpuesta por (DEMANDANTE) contra\n" +
+                    "(DEMANDADO) (...).\n" +
+                    "**II. (mandato concreto derivado del fallo).**\n" +
+                    "**III. (apercibimientos, órdenes a los órganos de apoyo y exhortaciones que correspondan).**\n" +
+                    "**IV. (pronunciamiento sobre costas y costos).**\n" +
+                    "**V. Consentida y/o ejecutoriada que sea la presente sentencia, CÚMPLASE lo ordenado como corresponde. NOTIFÍQUESE. -**\n\n" +
+                    "## NOTAS\n" +
+                    "1. (referencia doctrinaria o bibliográfica citada, solo si corresponde)\n" +
                     "</plantilla_ejemplo>\n\n" +
 
                     "<estilos_documento>\n" +
-                    "- Todos los datos de la cabecera, incluso hasta la ciudad y fecha deben de pintarse en negrita.\n" +
-                    "- En la sección de contenido, todos los títulos deben de pintarse con negrita.\n" +
-                    "<estilos_documento>\n\n" +
+                    "- El texto se convierte automáticamente a DOCX con un marcado ligero. Usa exclusivamente: \"# \" al inicio de línea para el\n" +
+                    "  título SENTENCIA, \"## \" para los títulos de parte (PARTE EXPOSITIVA, PARTE CONSIDERATIVA, PARTE RESOLUTIVA, NOTAS),\n" +
+                    "  \"### \" para los subtítulos internos, \"**texto**\" para negrita dentro de un párrafo y \"- \" para viñetas.\n" +
+                    "- Todos los datos de la cabecera, incluso hasta la ciudad y fecha, deben de pintarse en negrita.\n" +
+                    "- En la sección de contenido, todos los títulos y subtítulos deben de pintarse con negrita.\n" +
+                    "- Los numerales romanos de la parte resolutiva deben ir en negrita.\n" +
+                    "- No uses tablas, ni el carácter \"|\", ni guiones bajos, ni asteriscos sueltos: el conversor los interpreta como formato y\n" +
+                    "  deformaría el documento. Para resaltar usa siempre pares de dos asteriscos.\n" +
+                    "- Cada considerando debe iniciar en una línea nueva con su número seguido de punto.\n" +
+                    "</estilos_documento>\n\n" +
 
-                    "Basado en esto, redacta la sentencia final.";
+                    "Basado en todo lo anterior, redacta ahora la sentencia final completa.";
 
     @Override
     public ResponseGeneracionSentencia generarSentencia(InputGeneracionSentencia input, String sessionId) throws Exception {
@@ -483,14 +651,15 @@ public class SentenciaServiceImpl implements SentenciaService {
         settingsBuilder.setEndpoint(properties.getGcpEndpoint());
         settingsBuilder.setCredentialsProvider(FixedCredentialsProvider.create(credentials));
 
-        // Timeout un poco mayor que la calificación (calificación: 5 min RPC / 10 min total).
+        // Timeout bastante mayor que la calificación (calificación: 5 min RPC / 10 min total). La sentencia
+        // se redacta completa (hasta 65535 tokens de salida), por lo que la Fase 4 puede tardar varios minutos.
         RetrySettings retry = settingsBuilder
                 .generateContentSettings()
                 .getRetrySettings()
                 .toBuilder()
-                .setInitialRpcTimeout(Duration.ofMinutes(7))
-                .setMaxRpcTimeout(Duration.ofMinutes(7))
-                .setTotalTimeout(Duration.ofMinutes(15))
+                .setInitialRpcTimeout(Duration.ofMinutes(15))
+                .setMaxRpcTimeout(Duration.ofMinutes(15))
+                .setTotalTimeout(Duration.ofMinutes(25))
                 .build();
         settingsBuilder.generateContentSettings().setRetrySettings(retry);
 
@@ -585,9 +754,12 @@ public class SentenciaServiceImpl implements SentenciaService {
             float temperatureValue = configurations.getTemperature() != null
                     ? configurations.getTemperature().floatValue()
                     : 0.0f;
+            // La sentencia se redacta completa (todas las secciones de la <estructura_obligatoria>), por lo que
+            // necesita un presupuesto de salida amplio: con 8192 tokens el texto se cortaba a media parte
+            // considerativa. Las sentencias reales del juzgado equivalen a ~10 000-18 000 tokens.
             int maxOutputTokens = configurations.getMaxOutputTokens() != null
                     ? configurations.getMaxOutputTokens()
-                    : 8192;
+                    : 65535;
 
             GenerationConfig generationConfig = GenerationConfig.newBuilder()
                     .setTemperature(temperatureValue)
@@ -598,11 +770,15 @@ public class SentenciaServiceImpl implements SentenciaService {
                     .withSystemInstruction(ContentMaker.fromString(configurations.getRoleSystem()))
                     .withGenerationConfig(generationConfig);
 
+            // El bloque de leyes se envuelve en <normativa_recuperada> porque el PROMPT_DEFAULT referencia esa
+            // etiqueta de forma explícita en sus instrucciones, reglas de redacción y marco jurídico.
             String promptEnriquecido = notaMultiparte + String.format(
                     "INSTRUCCIONES DEL JUZGADO:%n%s%n%n" +
-                            "NORMATIVA LEGAL DE APOYO (referencial):%n%s%n%n" +
-                            "TAREA:%nAnaliza el documento PDF adjunto, valora los hechos y medios probatorios y, " +
-                            "apoyándote en la normativa proporcionada y la invocada en la demanda, redacta la sentencia.",
+                            "<normativa_recuperada>%n%s%n</normativa_recuperada>%n%n" +
+                            "TAREA:%nAnaliza el expediente PDF adjunto en su integridad, valora individualmente los hechos y los " +
+                            "medios probatorios y, apoyándote en la <normativa_recuperada> y en la normativa invocada en el " +
+                            "expediente, redacta la sentencia COMPLETA respetando todas las secciones de la " +
+                            "<estructura_obligatoria>.",
                     configurations.getPromptDefault(), contextoLeyes
             );
 

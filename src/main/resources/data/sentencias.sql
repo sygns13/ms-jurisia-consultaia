@@ -24,7 +24,7 @@ CREATE TABLE `JURISDB_CONSULTATIONIA`.`DemandasSentencias` (
 `temperature` decimal(3,1) DEFAULT NULL,
 `fechaSend` datetime DEFAULT NULL,
 `fechaResponse` datetime DEFAULT NULL,
-`response` text,
+`response` mediumtext,
 `timeSeconds` double DEFAULT NULL,
 `ConfigurationsId` int NOT NULL,
 `status` tinyint DEFAULT NULL,
@@ -70,3 +70,19 @@ KEY `IdxFinicio` (`finicio`),
 KEY `fK_DemandasSentencias_Configurations` (`ConfigurationsId`),
 CONSTRAINT `fK_DemandasSentencias_Configurations` FOREIGN KEY (`ConfigurationsId`) REFERENCES `JURISDB_CONSULTATIONIA`.`Configurations` (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- =====================================================================================
+-- 3) Migración: prompt exhaustivo de sentencias (estructura completa de la CSJ Áncash).
+--    El PROMPT_DEFAULT y el ROLE_SYSTEM se sobrescriben en SentenciaServiceImpl, pero el
+--    presupuesto de tokens de salida sí se lee de esta fila: con 8192 la sentencia se
+--    cortaba a media parte considerativa. Las sentencias reales del juzgado equivalen a
+--    unos 10 000-18 000 tokens.
+-- =====================================================================================
+UPDATE JURISDB_CONSULTATIONIA.Configurations
+SET maxOutputTokens = 65535
+WHERE serviceCode = 'geminy_sentencia_1';
+
+-- Instalaciones ya existentes: `response` fue creado como TEXT (65 535 bytes), lo que trunca
+-- una sentencia completa en UTF-8. Se amplía a MEDIUMTEXT en ambos esquemas.
+ALTER TABLE `JURISDB_CONSULTATIONIA`.`DemandasSentencias` MODIFY COLUMN `response` MEDIUMTEXT;
+ALTER TABLE `JURISDB_METRICS`.`DemandasSentencias` MODIFY COLUMN `response` MEDIUMTEXT;

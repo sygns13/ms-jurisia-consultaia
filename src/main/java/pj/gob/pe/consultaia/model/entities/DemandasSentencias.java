@@ -57,7 +57,7 @@ public class DemandasSentencias {
     @Schema(description = "Fecha y hora de respuesta", example = "2023-10-01T12:05:00")
     private LocalDateTime fechaResponse;
 
-    @Column(name = "response", columnDefinition = "TEXT")
+    @Column(name = "response", columnDefinition = "MEDIUMTEXT")
     @Schema(description = "Respuesta generada por Gemini")
     private String response;
 
