@@ -43,6 +43,7 @@ import pj.gob.pe.consultaia.service.externals.GeminiChatStorageService;
 import pj.gob.pe.consultaia.service.externals.JudicialService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.Constantes;
+import pj.gob.pe.consultaia.utils.PdfOptimizerUtil;
 import pj.gob.pe.consultaia.utils.beans.SectionTemplate;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputDocument;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputGeminiChatFile;
@@ -194,21 +195,34 @@ public class GeminiChatServiceImpl implements GeminiChatService {
                 }
                 String mime = resolverMime(adjunto);
                 String textoWord = extraerTextoWord(mime, adjunto.getContent());
-                String gsUri = geminiChatStorageService.subir(sessionUID, adjunto.getFileName(), mime, adjunto.getContent());
 
-                GeminiChatsFiles fileRow = new GeminiChatsFiles();
-                fileRow.setGeminiChatId(chat.getId());
-                fileRow.setSessionUID(sessionUID);
-                fileRow.setFileName(adjunto.getFileName());
-                fileRow.setMimeType(mime);
-                fileRow.setSizeBytes((long) adjunto.getContent().length);
-                fileRow.setGcsUri(gsUri);
-                fileRow.setTextoExtraido(textoWord);
-                fileRow.setFechaReg(LocalDateTime.now());
-                fileRow.setStatus(Constantes.REGISTRO_ACTIVO);
+                // Misma guarda de tamaño que la calificación y la sentencia: si el PDF excede lo que
+                // Gemini admite se recomprime y, en último caso, se parte. Cada parte se sube y se
+                // registra como un archivo propio, de modo que el historial la reinyecta igual que
+                // a cualquier otro adjunto.
+                List<byte[]> partesAdjunto = acondicionarAdjunto(mime, adjunto);
 
-                fileRow = geminiChatsFilesDAO.registrar(fileRow);
-                archivosTurno.add(fileRow);
+                for (int i = 0; i < partesAdjunto.size(); i++) {
+
+                    byte[] contenidoParte = partesAdjunto.get(i);
+                    String nombreParte = nombreDeParte(adjunto.getFileName(), i + 1, partesAdjunto.size());
+                    String gsUri = geminiChatStorageService.subir(sessionUID, nombreParte, mime, contenidoParte);
+
+                    GeminiChatsFiles fileRow = new GeminiChatsFiles();
+                    fileRow.setGeminiChatId(chat.getId());
+                    fileRow.setSessionUID(sessionUID);
+                    fileRow.setFileName(nombreParte);
+                    fileRow.setMimeType(mime);
+                    fileRow.setSizeBytes((long) contenidoParte.length);
+                    fileRow.setGcsUri(gsUri);
+                    // El texto de Word se guarda una sola vez (un .doc/.docx nunca se parte).
+                    fileRow.setTextoExtraido(i == 0 ? textoWord : null);
+                    fileRow.setFechaReg(LocalDateTime.now());
+                    fileRow.setStatus(Constantes.REGISTRO_ACTIVO);
+
+                    fileRow = geminiChatsFilesDAO.registrar(fileRow);
+                    archivosTurno.add(fileRow);
+                }
             }
         } catch (ValidationServiceException ex) {
             marcarError(chat, "Error de adjunto: " + ex.getMessage());
@@ -376,6 +390,10 @@ public class GeminiChatServiceImpl implements GeminiChatService {
                         + archivo.getTextoExtraido()
                         + "\n--------------------------------------------\n");
             } else if (archivo.getGcsUri() != null && !archivo.getGcsUri().isEmpty()) {
+                // Se nombra el archivo antes de adjuntarlo: además de dar contexto al modelo, es lo
+                // que le permite saber que un PDF partido ("... (parte 1 de 2).pdf") es un solo
+                // documento repartido en varios adjuntos consecutivos.
+                multiModalData.add("\n--- Archivo adjunto: " + archivo.getFileName() + " ---\n");
                 multiModalData.add(PartMaker.fromMimeTypeAndData(archivo.getMimeType(), archivo.getGcsUri()));
             }
         }
@@ -620,8 +638,67 @@ public class GeminiChatServiceImpl implements GeminiChatService {
     }
 
     // ====================================================================
-    // Adjuntos: MIME y extracción de Word
+    // Adjuntos: acondicionamiento, MIME y extracción de Word
     // ====================================================================
+    /**
+     * Acondiciona el adjunto para que Gemini lo acepte. Solo aplica a PDF: son los únicos afectados
+     * por el límite de 50 MB / 1000 páginas por archivo, que rige igual cuando el documento se
+     * referencia por URI gs://. El resto de formatos se devuelve sin tocar.
+     *
+     * @return las partes a subir (normalmente una sola)
+     * @throws ValidationServiceException si ni siquiera tras recomprimir y partir se logra bajar del
+     *                                    límite (una sola página descomunal); el usuario debe reducir
+     *                                    el archivo antes de adjuntarlo
+     */
+    private List<byte[]> acondicionarAdjunto(String mime, InputGeminiChatFile adjunto) {
+
+        if (!"application/pdf".equals(mime)) {
+            return List.of(adjunto.getContent());
+        }
+
+        long limite = properties.getGcpPdfLimiteBytes() != null
+                ? properties.getGcpPdfLimiteBytes()
+                : PdfOptimizerUtil.LIMITE_GEMINI_BYTES;
+
+        PdfOptimizerUtil.ResultadoOptimizacion optimizacion = PdfOptimizerUtil.prepararParaGemini(
+                adjunto.getContent(),
+                limite,
+                properties.getGcpPdfDpiObjetivo(),
+                properties.getGcpPdfCalidadJpeg(),
+                properties.getGcpPdfMaxPaginasPorParte(),
+                Boolean.TRUE.equals(properties.getGcpPdfComprimirSiempre()));
+
+        for (byte[] parte : optimizacion.partes()) {
+            if (parte.length > limite) {
+                throw new ValidationServiceException(String.format(
+                        "El archivo adjunto \"%s\" (%.2f MB) no pudo reducirse por debajo de los %.0f MB " +
+                                "que admite Gemini para archivos PDF. Reduzca la resolución del escaneo o " +
+                                "divida el documento antes de adjuntarlo.",
+                        adjunto.getFileName(),
+                        adjunto.getContent().length / (1024.0 * 1024.0),
+                        limite / (1024.0 * 1024.0)));
+            }
+        }
+
+        return optimizacion.partes();
+    }
+
+    /** Nombre del archivo cuando un adjunto tuvo que partirse: {@code demanda (parte 1 de 2).pdf}. */
+    private String nombreDeParte(String fileName, int indice, int total) {
+
+        String nombre = (fileName == null || fileName.isBlank()) ? "adjunto.pdf" : fileName.trim();
+
+        if (total <= 1) {
+            return nombre;
+        }
+
+        int punto = nombre.lastIndexOf('.');
+        String base = punto > 0 ? nombre.substring(0, punto) : nombre;
+        String extension = punto > 0 ? nombre.substring(punto) : "";
+
+        return String.format("%s (parte %d de %d)%s", base, indice, total, extension);
+    }
+
     /** Resuelve el MIME del adjunto; si el multipart no lo trae (o es genérico), se infiere por extensión. */
     private String resolverMime(InputGeminiChatFile adjunto) {
         String mime = adjunto.getMimeType();

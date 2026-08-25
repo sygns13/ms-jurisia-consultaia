@@ -48,6 +48,7 @@ import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.Constantes;
 import pj.gob.pe.consultaia.utils.DocxGeneratorUtil;
 import pj.gob.pe.consultaia.utils.PdfMergeUtil;
+import pj.gob.pe.consultaia.utils.PdfOptimizerUtil;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputDescargaSentencia;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputGeneracionSentencia;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputListadoDemandasSentencias;
@@ -503,11 +504,27 @@ public class SentenciaServiceImpl implements SentenciaService {
 
         PredictionServiceSettings predictionSettings = settingsBuilder.build();
 
+        // Gemini rechaza los PDF de más de 50 MB o de más de 1000 páginas. Un expediente es la unión
+        // de 1..n documentos digitalizados, así que antes de subirlo se recomprimen sus imágenes y,
+        // si aun así no cabe, se parte en varios archivos que viajan juntos en la misma petición.
+        PdfOptimizerUtil.ResultadoOptimizacion optimizacion = PdfOptimizerUtil.prepararParaGemini(
+                pdfBytes,
+                properties.getGcpPdfLimiteBytes(),
+                properties.getGcpPdfDpiObjetivo(),
+                properties.getGcpPdfCalidadJpeg(),
+                properties.getGcpPdfMaxPaginasPorParte(),
+                Boolean.TRUE.equals(properties.getGcpPdfComprimirSiempre()));
+
+        List<String> gsUris = new ArrayList<>(optimizacion.partes().size());
+        String notaMultiparte = notaMultiparte(optimizacion.partes().size());
+
         long tGcsIni = System.nanoTime();
-        String gsUri = gcsStorageService.subir(pdfBytes, "application/pdf");
+        try {
+        for (byte[] parte : optimizacion.partes()) {
+            gsUris.add(gcsStorageService.subir(parte, "application/pdf"));
+        }
         long tGcsFin = System.nanoTime();
 
-        try {
         try (VertexAI vertexAI = new VertexAI.Builder()
                 .setProjectId(properties.getGcpProjectId())
                 .setLocation(properties.getGcpLocationGlobal())
@@ -523,7 +540,10 @@ public class SentenciaServiceImpl implements SentenciaService {
                 })
                 .build()) {
 
-            var documentPart = PartMaker.fromMimeTypeAndData("application/pdf", gsUri);
+            List<Object> partesDocumento = new ArrayList<>(gsUris.size());
+            for (String uri : gsUris) {
+                partesDocumento.add(PartMaker.fromMimeTypeAndData("application/pdf", uri));
+            }
 
             // ============================================================
             // FASE 1: EXTRACCIÓN DE INTENCIÓN (conceptos jurídicos clave)
@@ -540,7 +560,8 @@ public class SentenciaServiceImpl implements SentenciaService {
 
             String terminosClave = ResponseHandler.getText(
                     modeloExtraccion.generateContent(
-                            ContentMaker.fromMultiModalData(documentPart, PROMPT_EXTRACCION_CONCEPTOS))
+                            ContentMaker.fromMultiModalData(
+                                    contenidoMultimodal(partesDocumento, notaMultiparte + PROMPT_EXTRACCION_CONCEPTOS)))
             );
             long tFase1Fin = System.nanoTime();
 
@@ -577,7 +598,7 @@ public class SentenciaServiceImpl implements SentenciaService {
                     .withSystemInstruction(ContentMaker.fromString(configurations.getRoleSystem()))
                     .withGenerationConfig(generationConfig);
 
-            String promptEnriquecido = String.format(
+            String promptEnriquecido = notaMultiparte + String.format(
                     "INSTRUCCIONES DEL JUZGADO:%n%s%n%n" +
                             "NORMATIVA LEGAL DE APOYO (referencial):%n%s%n%n" +
                             "TAREA:%nAnaliza el documento PDF adjunto, valora los hechos y medios probatorios y, " +
@@ -586,7 +607,8 @@ public class SentenciaServiceImpl implements SentenciaService {
             );
 
             String sentenciaFinal = ResponseHandler.getText(
-                    modeloFinal.generateContent(ContentMaker.fromMultiModalData(documentPart, promptEnriquecido))
+                    modeloFinal.generateContent(ContentMaker.fromMultiModalData(
+                            contenidoMultimodal(partesDocumento, promptEnriquecido)))
             );
             long tFase4Fin = System.nanoTime();
 
@@ -599,12 +621,39 @@ public class SentenciaServiceImpl implements SentenciaService {
             return sentenciaFinal;
         }
         } finally {
-            try {
-                gcsStorageService.borrar(gsUri);
-            } catch (Exception ex) {
-                logger.warn("[GCS] No se pudo borrar el objeto temporal {}: {}", gsUri, ex.getMessage());
+            for (String uri : gsUris) {
+                try {
+                    gcsStorageService.borrar(uri);
+                } catch (Exception ex) {
+                    logger.warn("[GCS] No se pudo borrar el objeto temporal {}: {}", uri, ex.getMessage());
+                }
             }
         }
+    }
+
+    /**
+     * Arma el arreglo (1..n documentos + prompt) que espera {@code ContentMaker.fromMultiModalData}.
+     * El expediente puede haberse partido en varios PDF por el límite de 50 MB de Gemini; todas las
+     * partes viajan en la MISMA petición para que el modelo lo siga viendo como un solo documento.
+     */
+    private Object[] contenidoMultimodal(List<Object> partesDocumento, String prompt) {
+        Object[] datos = new Object[partesDocumento.size() + 1];
+        for (int i = 0; i < partesDocumento.size(); i++) {
+            datos[i] = partesDocumento.get(i);
+        }
+        datos[partesDocumento.size()] = prompt;
+        return datos;
+    }
+
+    /** Aviso que se antepone al prompt cuando el expediente tuvo que enviarse partido. */
+    private String notaMultiparte(int cantidadPartes) {
+        if (cantidadPartes <= 1) {
+            return "";
+        }
+        return String.format(
+                "NOTA IMPORTANTE: por su tamaño, el expediente se adjunta dividido en %d archivos PDF " +
+                        "consecutivos que constituyen UN ÚNICO documento. Analízalos en conjunto y respetando " +
+                        "el orden en que se envían.%n%n", cantidadPartes);
     }
 
     private GoogleCredentials getCredentials() throws IOException {

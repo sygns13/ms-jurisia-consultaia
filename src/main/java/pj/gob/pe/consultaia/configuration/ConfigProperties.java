@@ -116,4 +116,21 @@ public class ConfigProperties {
 
     @Value("${gcp.gcsObjectPrefix}")
     private String gcpGcsObjectPrefix;
+
+    // --- Acondicionamiento del PDF antes de enviarlo a Gemini (PdfOptimizerUtil) ---
+    // Gemini rechaza los PDF de más de 50 MB (52 428 800 bytes) o de más de 1000 páginas.
+    @Value("${gcp.pdf.limiteBytes:50331648}")
+    private Long gcpPdfLimiteBytes;
+
+    @Value("${gcp.pdf.dpiObjetivo:150}")
+    private Integer gcpPdfDpiObjetivo;
+
+    @Value("${gcp.pdf.calidadJpeg:0.6}")
+    private Float gcpPdfCalidadJpeg;
+
+    @Value("${gcp.pdf.maxPaginasPorParte:1000}")
+    private Integer gcpPdfMaxPaginasPorParte;
+
+    @Value("${gcp.pdf.comprimirSiempre:false}")
+    private Boolean gcpPdfComprimirSiempre;
 }

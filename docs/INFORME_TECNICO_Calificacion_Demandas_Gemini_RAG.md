@@ -427,6 +427,72 @@ El tiempo total restante (110 s) se compone de dos bloques:
 
 Como alternativa **a nivel de código** (no de infraestructura), se identificó la posibilidad de **comprimir/reducir la resolución (DPI) del PDF** antes de subirlo (un PDF de demanda de 10 MB suele ser un escaneo de alta resolución), lo que reduciría proporcionalmente el tiempo de subida. Esta opción es sensible a la capacidad (afecta la resolución de las imágenes que lee Gemini), por lo que requeriría validación previa de que no degrada la lectura del documento.
 
+### 10.8. Límite de 50 MB de Gemini y acondicionamiento del PDF (`PdfOptimizerUtil`)
+
+#### Síntoma
+
+En expedientes con muchos documentos digitalizados, tanto la calificación como la generación de sentencia fallaban de forma intermitente con:
+
+```
+Error Gemini: The file size of `gs://pj_demandas_calificacion/demandas/7738e10f-....pdf`
+is 57061688, which exceeds max allowed file size of 52428800 for `application/pdf` files.
+```
+
+#### Causa
+
+Vertex AI impone por archivo PDF un máximo de **52 428 800 bytes (50 MB)** y de **1000 páginas**, y ese límite se aplica **igual** cuando el archivo se referencia por URI `gs://` (el `fileData` no evita el límite: solo evita reenviar los bytes por el proxy). El expediente se arma uniendo los 1..n archivos del `input.archivos` con `PdfMergeUtil`, y la unión **suma** el peso de cada escaneo, por lo que basta con un expediente voluminoso para cruzar los 50 MB. El fallo es intermitente porque depende del expediente, no del código.
+
+#### Solución implementada
+
+Se creó `utils/PdfOptimizerUtil`, que acondiciona el PDF ya unido **antes** de subirlo a GCS, con una estrategia escalonada que se detiene apenas el documento entra en el límite:
+
+1. **Recompresión de imágenes** (por defecto **150 ppp / JPEG 0.6**): se remuestrean solo las imágenes cuya resolución excede lo necesario para el tamaño de su página, y se reemplazan **únicamente si el resultado pesa menos** que el original. Se omiten *stencils*, máscaras e imágenes bitonales (CCITT/JBIG2), donde JPEG empeoraría el archivo. La capa de texto, la paginación y la estructura del documento se conservan intactas.
+2. **Recompresión agresiva** (2/3 del DPI y menor calidad) si aún excede.
+3. **Partición por mitades sucesivas** hasta que cada parte respete el límite de bytes y de páginas. Las partes se suben a GCS y se envían **como varios documentos dentro de la MISMA petición** a Gemini, en orden, anteponiendo al *prompt* una nota que indica que constituyen un único documento. El modelo sigue viendo el expediente completo; no se recorta información.
+
+Ninguna etapa puede romper el flujo: ante cualquier error de PDFBox se registra la incidencia y se continúa con el PDF tal como estaba.
+
+#### Resultados medidos
+
+Banco de pruebas sobre un expediente escaneado simulado (rasterizado a 300 ppp a partir de una resolución real):
+
+| Caso | Entrada | Salida | Páginas | Observación |
+|---|---|---|---|---|
+| Expediente que excede el límite | 55.18 MB (83 pág.) | **11.08 MB, 1 archivo** | 83 = 83 | Recompresión a 150 ppp; sin partición |
+| Límite forzado a 3 MB | 55.18 MB (83 pág.) | 5.11 MB en **2 archivos** (2.57 + 2.55 MB) | 42 + 41 = 83 | Ejercita la partición completa |
+| PDF de texto pequeño | 0.26 MB | 0.26 MB, sin tocar | — | No se activa ninguna etapa |
+| `comprimirSiempre: true` sobre PDF de texto | 0.26 MB | 0.26 MB | — | Texto extraído idéntico (4078 = 4078 caracteres) |
+
+La comparación visual de la página antes (300 ppp) y después (150 ppp) confirma que el documento se mantiene **plenamente legible**: 150 ppp está por encima de la resolución a la que Gemini rasteriza internamente cada página. El costo de CPU del acondicionamiento fue de ~13 s para 83 páginas, despreciable frente a un flujo que dura minutos.
+
+#### Alcance
+
+La guarda está aplicada en los tres puntos donde un PDF llega a Gemini:
+
+| Flujo | Entrada | Comportamiento |
+|---|---|---|
+| Calificación (`GeminiServiceImpl`, endpoints `calificarDemanda` / `calificarDemandaDocx`) | Unión de los `archivos` del expediente vía FTP | Recompresión y, si hace falta, partición; las partes viajan juntas en la misma petición |
+| Sentencia (`SentenciaServiceImpl`) | Ídem | Ídem |
+| Chat conversacional (`GeminiChatServiceImpl`) | Adjuntos del usuario (multipart) | Solo para `application/pdf`. Cada parte se sube y se registra como un `GeminiChatsFiles` propio (`archivo (parte 1 de 2).pdf`), de modo que el historial la reinyecta como cualquier otro adjunto. Si aun así no baja del límite, se rechaza con un mensaje claro en lugar de dejar fallar a Gemini |
+
+En el chat, además, cada adjunto se nombra en el contenido antes de enviarse (`--- Archivo adjunto: … ---`): da contexto al modelo y es lo que le permite reconocer que las partes de un PDF partido son un único documento.
+
+#### Efecto colateral favorable
+
+La reducción de 5x del peso ataca también el cuello de botella de la sección 10.7: subir 55 MB por un proxy de ~1.43 Mbit/s tomaría minutos; subir 11 MB toma una fracción. Por eso se dejó el interruptor `gcp.pdf.comprimirSiempre`, que aplica la recompresión a **todo** expediente y no solo a los que exceden. Se entrega en `false` (comportamiento conservador: solo actúa cuando hay que corregir el error) y puede activarse tras validar la calidad en producción con expedientes reales.
+
+#### Configuración
+
+```yaml
+gcp:
+  pdf:
+    limiteBytes: 50331648      # 48 MB: los 50 MB de Gemini con margen
+    dpiObjetivo: 150
+    calidadJpeg: 0.6
+    maxPaginasPorParte: 1000   # límite de páginas del modelo
+    comprimirSiempre: false
+```
+
 ---
 
 ## 11. Entorno de compilación
@@ -446,6 +512,7 @@ La compilación se realizó fijando `JAVA_HOME` a un JDK 21 (Temurin 21.0.11) pa
 | `service/externals/GcsStorageService.java` | Interfaz del almacenamiento temporal en GCS. |
 | `service/externals/impl/GcsStorageServiceImpl.java` | Implementación REST cruda (upload/delete) contra la JSON API de Storage. |
 | `diagnostics/proxy_throughput_bench.py` | Script de bench de throughput del proxy (diagnóstico para el equipo de red). |
+| `utils/PdfOptimizerUtil.java` | Acondicionamiento del PDF para Gemini: recompresión de imágenes y partición ante el límite de 50 MB / 1000 páginas (ver sección 10.8). |
 | `docs/INFORME_TECNICO_Calificacion_Demandas_Gemini_RAG.md` | Este documento. |
 
 ### 12.2. Archivos modificados
@@ -453,10 +520,12 @@ La compilación se realizó fijando `JAVA_HOME` a un JDK 21 (Temurin 21.0.11) pa
 | Archivo | Cambios |
 |---------|---------|
 | `controller/ServiceGeminiController.java` | (Sin cambios de lógica; expone los dos endpoints que delegan en `GeminiService`.) |
-| `service/business/impl/GeminiServiceImpl.java` | Reemplazo del mecanismo de RAG: de *Data Store* a RAG orquestado de 4 fases; modelo Flash + thinking 0 en Fase 1; cache de credenciales; instrumentación de tiempos; integración de GCS (subir/URI/borrar); log de tamaño de PDF; resolución híbrida del dominio. |
+| `service/business/impl/GeminiServiceImpl.java` | Reemplazo del mecanismo de RAG: de *Data Store* a RAG orquestado de 4 fases; modelo Flash + thinking 0 en Fase 1; cache de credenciales; instrumentación de tiempos; integración de GCS (subir/URI/borrar); log de tamaño de PDF; resolución híbrida del dominio; acondicionamiento del PDF ante el límite de 50 MB (sección 10.8). |
 | `controller/test/DemandaTestControllerV2.java` | Mismas optimizaciones aplicadas al controlador de prueba (resolución híbrida del dominio, Flash + thinking 0, cache de credenciales, instrumentación, GCS, log de tamaño de PDF). |
-| `configuration/ConfigProperties.java` | Nuevos campos: `vectorSearchLocation`, `extractionModel`, `embeddingModel`, `neighborCount`, `indexEndpointId`, `deployedIndexId`, `vectorSearchPublicDomain`, `gcsBucket`, `gcsObjectPrefix`. |
-| `resources/application.yml` | Nuevas propiedades bajo `gcp:` (RAG orquestado, modelos, dominio del endpoint, bucket de GCS). |
+| `configuration/ConfigProperties.java` | Nuevos campos: `vectorSearchLocation`, `extractionModel`, `embeddingModel`, `neighborCount`, `indexEndpointId`, `deployedIndexId`, `vectorSearchPublicDomain`, `gcsBucket`, `gcsObjectPrefix`; y los del acondicionamiento del PDF (`pdf.limiteBytes`, `pdf.dpiObjetivo`, `pdf.calidadJpeg`, `pdf.maxPaginasPorParte`, `pdf.comprimirSiempre`). |
+| `resources/application.yml` | Nuevas propiedades bajo `gcp:` (RAG orquestado, modelos, dominio del endpoint, bucket de GCS, bloque `pdf:`). |
+| `service/business/impl/SentenciaServiceImpl.java` | Mismo acondicionamiento del PDF que la calificación (sección 10.8): 1..n partes subidas a GCS y enviadas juntas en cada petición, y borrado de todas al finalizar. |
+| `service/business/impl/GeminiChatServiceImpl.java` | Acondicionamiento de los adjuntos PDF del chat (sección 10.8): una fila `GeminiChatsFiles` por parte, rechazo con mensaje claro si no se logra bajar del límite, y nombre del archivo antepuesto a cada adjunto en el contenido enviado a Gemini. |
 
 ### 12.3. Endpoints involucrados
 
