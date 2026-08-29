@@ -6,11 +6,7 @@ import com.google.api.gax.retrying.RetrySettings;
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cloud.vertexai.Transport;
 import com.google.cloud.vertexai.VertexAI;
-import com.google.cloud.vertexai.api.Content;
-import com.google.cloud.vertexai.api.GenerateContentResponse;
-import com.google.cloud.vertexai.api.GenerationConfig;
-import com.google.cloud.vertexai.api.PredictionServiceClient;
-import com.google.cloud.vertexai.api.PredictionServiceSettings;
+import com.google.cloud.vertexai.api.*;
 import com.google.cloud.vertexai.generativeai.ContentMaker;
 import com.google.cloud.vertexai.generativeai.GenerativeModel;
 import com.google.cloud.vertexai.generativeai.PartMaker;
@@ -56,6 +52,7 @@ import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Módulo conversacional con Gemini. Mantiene la misma lógica general del flujo ChatGPT
@@ -330,14 +327,10 @@ public class GeminiChatServiceImpl implements GeminiChatService {
                                      Map<Long, List<GeminiChatsFiles>> filesByChat,
                                      String prompt,
                                      List<GeminiChatsFiles> archivosTurno) throws IOException {
-
         GoogleCredentials credentials = getCredentials();
         credentials.refreshIfExpired();
-
         try (VertexAI vertexAI = crearClienteVertex(credentials)) {
-
             // Historial multimodal: cada turno previo se reinyecta con su texto Y sus adjuntos
-            // (URI gs:// para formatos nativos; texto extraído para Word), como pares user/model.
             List<Content> contents = new ArrayList<>();
             for (GeminiChats turno : historial) {
                 if (turno == null || turno.getPrompt() == null || turno.getResponse() == null) {
@@ -347,34 +340,80 @@ public class GeminiChatServiceImpl implements GeminiChatService {
                         filesByChat.getOrDefault(turno.getId(), Collections.emptyList())));
                 contents.add(ContentMaker.forRole("model").fromString(turno.getResponse()));
             }
-
             // Turno actual (texto + nuevos adjuntos)
             contents.add(construirTurnoUsuario(prompt, archivosTurno));
 
             float temperatureValue = configurations.getTemperature() != null
                     ? configurations.getTemperature().floatValue()
-                    : 0.3f;
+                    : 0.1f;
             int maxOutputTokens = configurations.getMaxOutputTokens() != null
                     ? configurations.getMaxOutputTokens()
-                    : 8192;
-
+                    : 16384;
             GenerationConfig generationConfig = GenerationConfig.newBuilder()
                     .setTemperature(temperatureValue)
                     .setMaxOutputTokens(maxOutputTokens)
                     .build();
 
+            // Grounding con Búsqueda de Google (campo google_search, no google_search_retrieval)
+            Tool googleSearchTool = Tool.newBuilder()
+                    .setGoogleSearch(Tool.GoogleSearch.newBuilder().build())
+                    .build();
+
             GenerativeModel model = new GenerativeModel(configurations.getModel(), vertexAI)
                     .withSystemInstruction(ContentMaker.fromString(configurations.getRoleSystem()))
-                    .withGenerationConfig(generationConfig);
+                    .withGenerationConfig(generationConfig)
+                    .withTools(Collections.singletonList(googleSearchTool));
 
             long tIni = System.nanoTime();
             GenerateContentResponse generateContentResponse = model.generateContent(contents);
-            String texto = ResponseHandler.getText(generateContentResponse);
-            logger.info("[GeminiChat] modelo={} turnosHistorial={} adjuntosTurno={} tiempoIA={}s",
+            String texto = extraerTexto(generateContentResponse);
+
+            logger.info("[GeminiChat] modelo={} turnosHistorial={} adjuntosTurno={} grounding={} tiempoIA={}s",
                     configurations.getModel(), historial.size(), archivosTurno.size(),
+                    describirGrounding(generateContentResponse),
                     String.format("%.2f", (System.nanoTime() - tIni) / 1_000_000_000.0));
             return texto;
         }
+    }
+
+    /**
+     * Extrae solo las partes de texto. Se evita ResponseHandler.getText() porque
+     * lanza excepción si el candidato trae partes no textuales o un finishReason
+     * distinto de STOP, algo frecuente cuando el modelo hace búsqueda.
+     */
+    private String extraerTexto(GenerateContentResponse response) {
+        if (response.getCandidatesCount() == 0) {
+            logger.warn("[GeminiChat] respuesta sin candidatos. promptFeedback={}",
+                    response.getPromptFeedback());
+            return "";
+        }
+        Candidate candidate = response.getCandidates(0);
+        Candidate.FinishReason finishReason = candidate.getFinishReason();
+        if (finishReason != Candidate.FinishReason.STOP
+                && finishReason != Candidate.FinishReason.FINISH_REASON_UNSPECIFIED) {
+            logger.warn("[GeminiChat] finishReason={} safetyRatings={}",
+                    finishReason, candidate.getSafetyRatingsList());
+        }
+        return candidate.getContent().getPartsList().stream()
+                .filter(Part::hasText)
+                .map(Part::getText)
+                .collect(Collectors.joining());
+    }
+
+    /** Resumen de las fuentes usadas, para trazabilidad en el log. */
+    private String describirGrounding(GenerateContentResponse response) {
+        if (response.getCandidatesCount() == 0) {
+            return "n/a";
+        }
+        GroundingMetadata metadata = response.getCandidates(0).getGroundingMetadata();
+        if (metadata.getGroundingChunksCount() == 0) {
+            return "no-usado";
+        }
+        String fuentes = metadata.getGroundingChunksList().stream()
+                .filter(chunk -> chunk.hasWeb())
+                .map(chunk -> chunk.getWeb().getUri())
+                .collect(Collectors.joining(", "));
+        return String.format("queries=%s fuentes=[%s]", metadata.getWebSearchQueriesList(), fuentes);
     }
 
     /**
