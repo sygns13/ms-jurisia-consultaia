@@ -24,6 +24,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.threeten.bp.Duration;
 import pj.gob.pe.consultaia.configuration.ConfigProperties;
+import pj.gob.pe.consultaia.configuration.RetryProperties;
 import pj.gob.pe.consultaia.dao.mysql.ConfigurationDAO;
 import pj.gob.pe.consultaia.dao.mysql.GeminiChatsDAO;
 import pj.gob.pe.consultaia.dao.mysql.GeminiChatsFilesDAO;
@@ -40,6 +41,7 @@ import pj.gob.pe.consultaia.service.externals.JudicialService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.Constantes;
 import pj.gob.pe.consultaia.utils.PdfOptimizerUtil;
+import pj.gob.pe.consultaia.utils.ReintentoUtil;
 import pj.gob.pe.consultaia.utils.beans.SectionTemplate;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputDocument;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputGeminiChatFile;
@@ -78,6 +80,7 @@ public class GeminiChatServiceImpl implements GeminiChatService {
     private final GeminiExpedienteChatsDAO geminiExpedienteChatsDAO;
     private final GeminiChatStorageService geminiChatStorageService;
     private final ConfigProperties properties;
+    private final RetryProperties retryProperties;
     private final KafkaTemplate<String, Object> kafkaTemplate;
 
     private static final String SERVICE_CODE = "gemini_chat_1";
@@ -365,7 +368,8 @@ public class GeminiChatServiceImpl implements GeminiChatService {
                     .withTools(Collections.singletonList(googleSearchTool));
 
             long tIni = System.nanoTime();
-            GenerateContentResponse generateContentResponse = model.generateContent(contents);
+            GenerateContentResponse generateContentResponse = ReintentoUtil.ejecutar(
+                    retryProperties, "GeminiChat turno conversacional", () -> model.generateContent(contents));
             String texto = extraerTexto(generateContentResponse);
 
             logger.info("[GeminiChat] modelo={} turnosHistorial={} adjuntosTurno={} grounding={} tiempoIA={}s",
@@ -565,8 +569,9 @@ public class GeminiChatServiceImpl implements GeminiChatService {
                     long tIni = System.nanoTime();
                     String textoCorregido;
                     try {
-                        GenerateContentResponse geminiResponse = model.generateContent(
-                                ContentMaker.fromString(seccion.getContent()));
+                        GenerateContentResponse geminiResponse = ReintentoUtil.ejecutar(
+                                retryProperties, "GeminiDocumento sección " + seccion.getId(), () ->
+                                        model.generateContent(ContentMaker.fromString(seccion.getContent())));
                         textoCorregido = ResponseHandler.getText(geminiResponse);
                     } catch (Exception ex) {
                         logger.error("Error invocando Gemini para la sección {}: {}", seccion.getId(), ex.getMessage(), ex);

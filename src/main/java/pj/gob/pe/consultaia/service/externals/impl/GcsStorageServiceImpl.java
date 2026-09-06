@@ -13,7 +13,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import pj.gob.pe.consultaia.configuration.ConfigProperties;
+import pj.gob.pe.consultaia.configuration.RetryProperties;
+import pj.gob.pe.consultaia.exception.HttpEstadoException;
 import pj.gob.pe.consultaia.service.externals.GcsStorageService;
+import pj.gob.pe.consultaia.utils.ReintentoUtil;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -37,7 +40,18 @@ public class GcsStorageServiceImpl implements GcsStorageService {
 
     private static final String GCS_BASE = "https://storage.googleapis.com";
 
+    /** 5 min: la subida del PDF por proxy puede ser lenta (~1.4 Mbit/s medidos). */
+    private static final int TIMEOUT_SUBIDA_MS = 300_000;
+
+    /**
+     * 1 min: el borrado es una petición diminuta y además es limpieza best-effort que corre en el
+     * {@code finally} del flujo. Con un timeout de 5 min, un corte de red al final haría esperar al
+     * usuario varios minutos por un resultado que ya está listo.
+     */
+    private static final int TIMEOUT_BORRADO_MS = 60_000;
+
     private final ConfigProperties properties;
+    private final RetryProperties retryProperties;
 
     /** Credenciales cacheadas: el token OAuth (~1h) se reutiliza entre subidas. */
     private volatile GoogleCredentials cachedCredentials;
@@ -51,21 +65,29 @@ public class GcsStorageServiceImpl implements GcsStorageService {
                 + URLEncoder.encode(objectName, StandardCharsets.UTF_8);
 
         NetHttpTransport transport = buildHttpTransport();
-        HttpRequestFactory factory = transport.createRequestFactory();
-        HttpRequest request = factory.buildPostRequest(
-                new GenericUrl(url), new ByteArrayContent(contentType, contenido));
-
-        HttpResponse response = ejecutar(request, "subida a gs://" + bucket + "/" + objectName);
-        try {
-            if (response.getStatusCode() >= 300) {
-                throw new IOException("Error subiendo a GCS (" + response.getStatusCode() + "): "
-                        + response.parseAsString());
-            }
-        } finally {
-            response.disconnect();
-        }
-
         String gsUri = "gs://" + bucket + "/" + objectName;
+
+        // Es la operación más larga y frágil del flujo (sube los bytes del PDF por el proxy), así que
+        // se protege con reintentos. El nombre del objeto se fija ANTES del primer intento: todos los
+        // intentos escriben sobre el MISMO objeto, de modo que un reintento no deja copias huérfanas
+        // en el bucket. La petición se reconstruye en cada intento para tomar una conexión limpia.
+        ReintentoUtil.ejecutarAccion(retryProperties, "GCS subida de " + gsUri, () -> {
+            HttpRequestFactory factory = transport.createRequestFactory();
+            HttpRequest request = factory.buildPostRequest(
+                    new GenericUrl(url), new ByteArrayContent(contentType, contenido));
+
+            HttpResponse response = ejecutar(request, TIMEOUT_SUBIDA_MS);
+            try {
+                if (response.getStatusCode() >= 300) {
+                    throw new HttpEstadoException(response.getStatusCode(),
+                            "Error subiendo a GCS (" + response.getStatusCode() + "): "
+                                    + response.parseAsString());
+                }
+            } finally {
+                response.disconnect();
+            }
+        });
+
         logger.info("[GCS] PDF subido: {} ({} bytes)", gsUri, contenido.length);
         return gsUri;
     }
@@ -87,31 +109,35 @@ public class GcsStorageServiceImpl implements GcsStorageService {
                 + URLEncoder.encode(objectName, StandardCharsets.UTF_8);
 
         NetHttpTransport transport = buildHttpTransport();
-        HttpRequestFactory factory = transport.createRequestFactory();
-        HttpRequest request = factory.buildDeleteRequest(new GenericUrl(url));
 
-        HttpResponse response = ejecutar(request, "borrado de " + gsUri);
-        try {
-            // 204/200 = borrado; 404 = ya no existe (idempotente, lo tratamos como éxito).
-            int status = response.getStatusCode();
-            if (status >= 300 && status != 404) {
-                throw new IOException("Error borrando objeto GCS (" + status + "): " + response.parseAsString());
+        ReintentoUtil.ejecutarAccion(retryProperties, "GCS borrado de " + gsUri, () -> {
+            HttpRequestFactory factory = transport.createRequestFactory();
+            HttpRequest request = factory.buildDeleteRequest(new GenericUrl(url));
+
+            HttpResponse response = ejecutar(request, TIMEOUT_BORRADO_MS);
+            try {
+                // 204/200 = borrado; 404 = ya no existe (idempotente, lo tratamos como éxito).
+                int status = response.getStatusCode();
+                if (status >= 300 && status != 404) {
+                    throw new HttpEstadoException(status,
+                            "Error borrando objeto GCS (" + status + "): " + response.parseAsString());
+                }
+                logger.info("[GCS] PDF borrado: {} (HTTP {})", gsUri, status);
+            } finally {
+                response.disconnect();
             }
-            logger.info("[GCS] PDF borrado: {} (HTTP {})", gsUri, status);
-        } finally {
-            response.disconnect();
-        }
+        });
     }
 
     // ====================================================================
     // Utilidades
     // ====================================================================
-    private HttpResponse ejecutar(HttpRequest request, String contexto) throws IOException {
+    private HttpResponse ejecutar(HttpRequest request, int readTimeoutMs) throws IOException {
         HttpHeaders headers = new HttpHeaders();
         headers.setAuthorization("Bearer " + obtenerAccessToken());
         request.setHeaders(headers);
         request.setConnectTimeout(60_000);
-        request.setReadTimeout(300_000); // 5 min: la subida del PDF por proxy puede ser lenta
+        request.setReadTimeout(readTimeoutMs);
         request.setThrowExceptionOnExecuteError(false);
         return request.execute();
     }

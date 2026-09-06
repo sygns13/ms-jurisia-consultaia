@@ -8,7 +8,6 @@ import com.google.api.client.http.ByteArrayContent;
 import com.google.api.client.http.GenericUrl;
 import com.google.api.client.http.HttpHeaders;
 import com.google.api.client.http.HttpRequest;
-import com.google.api.client.http.HttpRequestFactory;
 import com.google.api.client.http.HttpResponse;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.gax.core.FixedCredentialsProvider;
@@ -33,8 +32,10 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.threeten.bp.Duration;
 import pj.gob.pe.consultaia.configuration.ConfigProperties;
+import pj.gob.pe.consultaia.configuration.RetryProperties;
 import pj.gob.pe.consultaia.dao.mysql.ConfigurationDAO;
 import pj.gob.pe.consultaia.dao.mysql.DemandasSentenciasDAO;
+import pj.gob.pe.consultaia.exception.HttpEstadoException;
 import pj.gob.pe.consultaia.exception.ValidationServiceException;
 import pj.gob.pe.consultaia.exception.ValidationSessionServiceException;
 import pj.gob.pe.consultaia.model.beans.DemandasSentenciasToKafka;
@@ -49,6 +50,7 @@ import pj.gob.pe.consultaia.utils.Constantes;
 import pj.gob.pe.consultaia.utils.DocxGeneratorUtil;
 import pj.gob.pe.consultaia.utils.PdfMergeUtil;
 import pj.gob.pe.consultaia.utils.PdfOptimizerUtil;
+import pj.gob.pe.consultaia.utils.ReintentoUtil;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputDescargaSentencia;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputGeneracionSentencia;
 import pj.gob.pe.consultaia.utils.beans.inputs.InputListadoDemandasSentencias;
@@ -95,6 +97,7 @@ public class SentenciaServiceImpl implements SentenciaService {
     private final DemandasSentenciasDAO demandasSentenciasDAO;
     private final FtpService ftpService;
     private final ConfigProperties properties;
+    private final RetryProperties retryProperties;
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final ChunkStoreService chunkStoreService;
     private final GcsStorageService gcsStorageService;
@@ -728,9 +731,10 @@ public class SentenciaServiceImpl implements SentenciaService {
                             .build());
 
             String terminosClave = ResponseHandler.getText(
-                    modeloExtraccion.generateContent(
-                            ContentMaker.fromMultiModalData(
-                                    contenidoMultimodal(partesDocumento, notaMultiparte + PROMPT_EXTRACCION_CONCEPTOS)))
+                    ReintentoUtil.ejecutar(retryProperties, "Sentencia Fase 1 (extracción de conceptos)", () ->
+                            modeloExtraccion.generateContent(
+                                    ContentMaker.fromMultiModalData(
+                                            contenidoMultimodal(partesDocumento, notaMultiparte + PROMPT_EXTRACCION_CONCEPTOS))))
             );
             long tFase1Fin = System.nanoTime();
 
@@ -783,8 +787,9 @@ public class SentenciaServiceImpl implements SentenciaService {
             );
 
             String sentenciaFinal = ResponseHandler.getText(
-                    modeloFinal.generateContent(ContentMaker.fromMultiModalData(
-                            contenidoMultimodal(partesDocumento, promptEnriquecido)))
+                    ReintentoUtil.ejecutar(retryProperties, "Sentencia Fase 4 (redacción de la sentencia)", () ->
+                            modeloFinal.generateContent(ContentMaker.fromMultiModalData(
+                                    contenidoMultimodal(partesDocumento, promptEnriquecido))))
             );
             long tFase4Fin = System.nanoTime();
 
@@ -870,7 +875,8 @@ public class SentenciaServiceImpl implements SentenciaService {
         ObjectNode body = mapper.createObjectNode();
         body.putArray("instances").add(instance);
 
-        JsonNode resp = ejecutarPost(httpTransport, accessToken, url, mapper.writeValueAsString(body));
+        JsonNode resp = ejecutarPost(httpTransport, "Sentencia Fase 2 (embeddings)",
+                accessToken, url, mapper.writeValueAsString(body));
 
         JsonNode values = resp.path("predictions").path(0).path("embeddings").path("values");
         if (!values.isArray() || values.isEmpty()) {
@@ -911,7 +917,8 @@ public class SentenciaServiceImpl implements SentenciaService {
         body.put("deployedIndexId", properties.getGcpDeployedIndexId());
         body.putArray("queries").add(query);
 
-        JsonNode resp = ejecutarPost(httpTransport, accessToken, url, mapper.writeValueAsString(body));
+        JsonNode resp = ejecutarPost(httpTransport, "Sentencia Fase 3 (Vector Search)",
+                accessToken, url, mapper.writeValueAsString(body));
 
         // Umbral de similitud (se afina empíricamente, 0.65 - 0.75 suele ser un buen inicio).
         double UMBRAL_MINIMO_SIMILITUD = 0.78;
@@ -957,7 +964,8 @@ public class SentenciaServiceImpl implements SentenciaService {
         synchronized (this) {
             if (publicDomainCache == null) {
                 String regionalBase = "https://" + properties.getGcpVectorSearchLocation() + "-aiplatform.googleapis.com";
-                JsonNode resp = ejecutarGet(httpTransport, accessToken, regionalBase + "/v1/" + indexEndpointResource);
+                JsonNode resp = ejecutarGet(httpTransport, "Sentencia: dominio del Index Endpoint",
+                        accessToken, regionalBase + "/v1/" + indexEndpointResource);
                 String publicDomain = resp.path("publicEndpointDomainName").asText("");
                 publicDomainCache = publicDomain.isEmpty() ? regionalBase : "https://" + publicDomain;
             }
@@ -997,38 +1005,48 @@ public class SentenciaServiceImpl implements SentenciaService {
         return new NetHttpTransport.Builder().build();
     }
 
-    private JsonNode ejecutarPost(NetHttpTransport httpTransport, String accessToken, String url, String jsonBody)
+    private JsonNode ejecutarPost(NetHttpTransport httpTransport, String contexto, String accessToken,
+                                  String url, String jsonBody) throws IOException {
+        return ejecutar(contexto, accessToken, url, () ->
+                httpTransport.createRequestFactory().buildPostRequest(
+                        new GenericUrl(url),
+                        new ByteArrayContent("application/json", jsonBody.getBytes(StandardCharsets.UTF_8))));
+    }
+
+    private JsonNode ejecutarGet(NetHttpTransport httpTransport, String contexto, String accessToken, String url)
             throws IOException {
-        HttpRequestFactory factory = httpTransport.createRequestFactory();
-        HttpRequest request = factory.buildPostRequest(
-                new GenericUrl(url),
-                new ByteArrayContent("application/json", jsonBody.getBytes(StandardCharsets.UTF_8)));
-        return ejecutar(request, accessToken, url);
+        return ejecutar(contexto, accessToken, url, () ->
+                httpTransport.createRequestFactory().buildGetRequest(new GenericUrl(url)));
     }
 
-    private JsonNode ejecutarGet(NetHttpTransport httpTransport, String accessToken, String url) throws IOException {
-        HttpRequestFactory factory = httpTransport.createRequestFactory();
-        HttpRequest request = factory.buildGetRequest(new GenericUrl(url));
-        return ejecutar(request, accessToken, url);
-    }
+    /**
+     * Ejecuta la llamada REST con reintentos ante cortes del enlace con el proxy (ver
+     * {@link ReintentoUtil}). La petición se reconstruye en cada intento (de ahí el constructor,
+     * en vez de un {@code HttpRequest} ya armado) para que el intento tome una conexión limpia.
+     */
+    private JsonNode ejecutar(String contexto, String accessToken, String url,
+                              ReintentoUtil.OperacionIO<HttpRequest> constructorPeticion) throws IOException {
 
-    private JsonNode ejecutar(HttpRequest request, String accessToken, String url) throws IOException {
-        HttpHeaders headers = new HttpHeaders();
-        headers.setAuthorization("Bearer " + accessToken);
-        request.setHeaders(headers);
-        request.setConnectTimeout(60_000);
-        request.setReadTimeout(120_000);
-        request.setThrowExceptionOnExecuteError(false);
+        return ReintentoUtil.ejecutar(retryProperties, contexto, () -> {
+            HttpRequest request = constructorPeticion.ejecutar();
 
-        HttpResponse response = request.execute();
-        try {
-            if (response.getStatusCode() >= 300) {
-                throw new IOException("Error REST " + response.getStatusCode()
-                        + " en " + url + ": " + response.parseAsString());
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAuthorization("Bearer " + accessToken);
+            request.setHeaders(headers);
+            request.setConnectTimeout(60_000);
+            request.setReadTimeout(120_000);
+            request.setThrowExceptionOnExecuteError(false);
+
+            HttpResponse response = request.execute();
+            try {
+                if (response.getStatusCode() >= 300) {
+                    throw new HttpEstadoException(response.getStatusCode(), "Error REST "
+                            + response.getStatusCode() + " en " + url + ": " + response.parseAsString());
+                }
+                return mapper.readTree(response.getContent());
+            } finally {
+                response.disconnect();
             }
-            return mapper.readTree(response.getContent());
-        } finally {
-            response.disconnect();
-        }
+        });
     }
 }

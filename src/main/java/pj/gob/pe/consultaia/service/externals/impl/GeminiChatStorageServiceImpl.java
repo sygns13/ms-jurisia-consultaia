@@ -14,7 +14,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import pj.gob.pe.consultaia.configuration.ConfigProperties;
 import pj.gob.pe.consultaia.configuration.GeminiChatProperties;
+import pj.gob.pe.consultaia.configuration.RetryProperties;
+import pj.gob.pe.consultaia.exception.HttpEstadoException;
 import pj.gob.pe.consultaia.service.externals.GeminiChatStorageService;
+import pj.gob.pe.consultaia.utils.ReintentoUtil;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -41,6 +44,7 @@ public class GeminiChatStorageServiceImpl implements GeminiChatStorageService {
 
     private final ConfigProperties properties;
     private final GeminiChatProperties chatProperties;
+    private final RetryProperties retryProperties;
 
     /** Credenciales cacheadas: el token OAuth (~1h) se reutiliza entre subidas. */
     private volatile GoogleCredentials cachedCredentials;
@@ -55,28 +59,35 @@ public class GeminiChatStorageServiceImpl implements GeminiChatStorageService {
                 + URLEncoder.encode(objectName, StandardCharsets.UTF_8);
 
         NetHttpTransport transport = buildHttpTransport();
-        HttpRequestFactory factory = transport.createRequestFactory();
-        HttpRequest request = factory.buildPostRequest(
-                new GenericUrl(url), new ByteArrayContent(contentType, contenido));
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.setAuthorization("Bearer " + obtenerAccessToken());
-        request.setHeaders(headers);
-        request.setConnectTimeout(60_000);
-        request.setReadTimeout(300_000); // 5 min: la subida por proxy puede ser lenta
-        request.setThrowExceptionOnExecuteError(false);
-
-        HttpResponse response = request.execute();
-        try {
-            if (response.getStatusCode() >= 300) {
-                throw new IOException("Error subiendo adjunto a GCS (" + response.getStatusCode() + "): "
-                        + response.parseAsString());
-            }
-        } finally {
-            response.disconnect();
-        }
-
         String gsUri = "gs://" + bucket + "/" + objectName;
+
+        // Reintentos ante cortes del enlace con el proxy (ver ReintentoUtil). El nombre del objeto se
+        // fija ANTES del primer intento, así todos los intentos escriben sobre el MISMO objeto y un
+        // reintento no deja adjuntos huérfanos en el bucket (que además no se borran nunca).
+        ReintentoUtil.ejecutarAccion(retryProperties, "GCS-chat subida de " + gsUri, () -> {
+            HttpRequestFactory factory = transport.createRequestFactory();
+            HttpRequest request = factory.buildPostRequest(
+                    new GenericUrl(url), new ByteArrayContent(contentType, contenido));
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setAuthorization("Bearer " + obtenerAccessToken());
+            request.setHeaders(headers);
+            request.setConnectTimeout(60_000);
+            request.setReadTimeout(300_000); // 5 min: la subida por proxy puede ser lenta
+            request.setThrowExceptionOnExecuteError(false);
+
+            HttpResponse response = request.execute();
+            try {
+                if (response.getStatusCode() >= 300) {
+                    throw new HttpEstadoException(response.getStatusCode(),
+                            "Error subiendo adjunto a GCS (" + response.getStatusCode() + "): "
+                                    + response.parseAsString());
+                }
+            } finally {
+                response.disconnect();
+            }
+        });
+
         logger.info("[GCS-chat] Adjunto subido: {} ({} bytes)", gsUri, contenido.length);
         return gsUri;
     }
