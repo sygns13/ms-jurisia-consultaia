@@ -28,5 +28,5 @@ CONSTRAINT `fK_GeminiChatsFiles_GeminiChats` FOREIGN KEY (`geminiChatId`) REFERE
 
 -- Modelo del chat conversacional Gemini (punto 4 de la guía del requerimiento).
 UPDATE `JURISDB_CONSULTATIONIA`.`Configurations`
-SET `model` = 'gemini-3.6-flash'
+SET `model` = 'gemini-3.8-flash'
 WHERE `serviceCode` = 'gemini_chat_1';

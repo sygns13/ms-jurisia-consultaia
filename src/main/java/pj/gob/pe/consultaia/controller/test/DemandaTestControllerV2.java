@@ -85,7 +85,7 @@ public class DemandaTestControllerV2 {
     // Modelos Gemini: Flash para la EXTRACCIÓN (Fase 1, rápido/barato, paso de recuperación)
     // y Pro para la REDACCIÓN final (Fase 4, máxima calidad). La Fase 4 NO cambia su capacidad.
     // NOTA: confirmar que el ID de Flash exista en el proyecto/región; ajustar si difiere.
-    private final String extractionModel = "gemini-3.5-flash";
+    private final String extractionModel = "gemini-3.8-flash";
     private final String finalModel = "gemini-3.1-pro-preview";
 
     private final String embeddingModel = "text-multilingual-embedding-002";

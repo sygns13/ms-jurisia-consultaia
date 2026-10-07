@@ -10,7 +10,7 @@ insert into JURISDB_CONSULTATIONIA.Configurations
     (serviceCode, model, descripcion, roleSystem, promptDefault, maxMessages, temperature, activo, borrado, maxOutputTokens)
 select
     'gemini_document_1',
-    'gemini-3.6-flash',
+    'gemini-3.8-flash',
     'Servicio de Corrección de Textos de la IA con Gemini',
     roleSystem,
     promptDefault,

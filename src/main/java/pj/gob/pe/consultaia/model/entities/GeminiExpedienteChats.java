@@ -49,7 +49,7 @@ public class GeminiExpedienteChats {
     private Long userId;
 
     @Column(name = "model", length = 50)
-    @Schema(description = "Modelo utilizado", example = "gemini-3.6-flash")
+    @Schema(description = "Modelo utilizado", example = "gemini-3.7-flash")
     private String model;
 
     @Column(name = "roleSystem", columnDefinition = "TEXT")

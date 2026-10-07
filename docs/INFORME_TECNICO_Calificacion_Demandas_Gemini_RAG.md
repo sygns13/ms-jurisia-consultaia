@@ -283,7 +283,7 @@ Este valor se registró en la propiedad `vectorSearchPublicDomain`, eliminando i
 Para medir con datos reales el peso de cada fase, se añadió un *logging* estructurado que registra la duración de cada fase y el total. Se añadió el método utilitario `seg(...)`, que formatea el lapso entre dos marcas de `System.nanoTime()` en segundos con dos decimales. Ejemplo de línea de log:
 
 ```
-[Calificación tiempos] GCS-upload=55.98s | Fase1(extracción gemini-3.5-flash)=8.02s |
+[Calificación tiempos] GCS-upload=55.98s | Fase1(extracción gemini-3.8-flash)=8.02s |
    Fase2(embedding)=1.21s | Fase3(vectorSearch)=1.42s | Fase4(redacción gemini-3.1-pro-preview)=43.47s | Total IA=110.13s
 ```
 
@@ -307,7 +307,7 @@ Bajo el nodo `gcp:` del `application.yml` se mantienen y/o añadieron las siguie
 | `endpoint` | `aiplatform.googleapis.com:443` | Endpoint del `PredictionServiceSettings`. |
 | `endpointAPI` | `aiplatform.googleapis.com` | API endpoint del `VertexAI.Builder`. |
 | `vectorSearchLocation` | `us-central1` | Región donde se creó el índice de Vector Search. |
-| `extractionModel` | `gemini-3.5-flash` | Modelo Gemini de la Fase 1 (extracción). |
+| `extractionModel` | `gemini-3.8-flash` | Modelo Gemini de la Fase 1 (extracción). |
 | `embeddingModel` | `text-multilingual-embedding-002` | Modelo de embeddings de la Fase 2. |
 | `neighborCount` | `20` | Cantidad de artículos a recuperar en la Fase 3. |
 | `indexEndpointId` | `4248471148284608512` | Index Endpoint de Vector Search. |
