@@ -67,6 +67,8 @@ public class DemandasSentenciasToKafka {
     private String xdescEspecialista;
     private String xdescDemandado;
     private String xdescDemandante;
+    private String codSede;
+    private String sede;
 
     // ===== Datos del usuario (sesión / UserLogin) =====
     private Long idUser;
@@ -130,6 +132,8 @@ public class DemandasSentenciasToKafka {
         k.setXdescEspecialista(d.getXdescEspecialista());
         k.setXdescDemandado(d.getXdescDemandado());
         k.setXdescDemandante(d.getXdescDemandante());
+        k.setCodSede(d.getCodSede());
+        k.setSede(d.getSede());
 
         if (u != null) {
             k.setIdUser(u.getIdUser());

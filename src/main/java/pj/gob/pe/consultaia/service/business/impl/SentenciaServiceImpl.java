@@ -45,7 +45,9 @@ import pj.gob.pe.consultaia.service.business.ChunkStoreService;
 import pj.gob.pe.consultaia.service.business.SentenciaService;
 import pj.gob.pe.consultaia.service.externals.FtpService;
 import pj.gob.pe.consultaia.service.externals.GcsStorageService;
+import pj.gob.pe.consultaia.service.externals.JudicialService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
+import pj.gob.pe.consultaia.utils.beans.responses.DataSedeDTO;
 import pj.gob.pe.consultaia.utils.Constantes;
 import pj.gob.pe.consultaia.utils.DocxGeneratorUtil;
 import pj.gob.pe.consultaia.utils.PdfMergeUtil;
@@ -101,6 +103,7 @@ public class SentenciaServiceImpl implements SentenciaService {
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final ChunkStoreService chunkStoreService;
     private final GcsStorageService gcsStorageService;
+    private final JudicialService judicialService;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -429,6 +432,13 @@ public class SentenciaServiceImpl implements SentenciaService {
         sentencia.setXdescEspecialista(input.getXdescEspecialista());
         sentencia.setXdescDemandado(input.getXdescDemandado());
         sentencia.setXdescDemandante(input.getXdescDemandante());
+
+        // Sede de la instancia, para los reportes de métricas por sede (best-effort: puede quedar null).
+        DataSedeDTO sede = judicialService.GetSedePorInstancia(sessionId, input.getCinstancia());
+        if (sede != null) {
+            sentencia.setCodSede(sede.getCodigoSede());
+            sentencia.setSede(sede.getSede() != null ? sede.getSede().trim() : null);
+        }
 
         sentencia = demandasSentenciasDAO.registrar(sentencia);
 

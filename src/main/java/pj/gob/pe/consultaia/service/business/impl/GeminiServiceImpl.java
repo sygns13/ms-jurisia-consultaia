@@ -46,7 +46,9 @@ import pj.gob.pe.consultaia.service.business.GeminiService;
 import pj.gob.pe.consultaia.service.business.JurisprudenciaStoreService;
 import pj.gob.pe.consultaia.service.externals.FtpService;
 import pj.gob.pe.consultaia.service.externals.GcsStorageService;
+import pj.gob.pe.consultaia.service.externals.JudicialService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
+import pj.gob.pe.consultaia.utils.beans.responses.DataSedeDTO;
 import pj.gob.pe.consultaia.utils.Constantes;
 import pj.gob.pe.consultaia.utils.DocxGeneratorUtil;
 import pj.gob.pe.consultaia.utils.PdfMergeUtil;
@@ -89,6 +91,7 @@ public class GeminiServiceImpl implements GeminiService {
     private final ChunkStoreService chunkStoreService;
     private final JurisprudenciaStoreService jurisprudenciaStoreService;
     private final GcsStorageService gcsStorageService;
+    private final JudicialService judicialService;
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -282,6 +285,13 @@ public class GeminiServiceImpl implements GeminiService {
         demanda.setXdescEspecialista(input.getXdescEspecialista());
         demanda.setXdescDemandado(input.getXdescDemandado());
         demanda.setXdescDemandante(input.getXdescDemandante());
+
+        // Sede de la instancia, para los reportes de métricas por sede (best-effort: puede quedar null).
+        DataSedeDTO sede = judicialService.GetSedePorInstancia(sessionId, input.getCinstancia());
+        if (sede != null) {
+            demanda.setCodSede(sede.getCodigoSede());
+            demanda.setSede(sede.getSede() != null ? sede.getSede().trim() : null);
+        }
 
         demanda = demandasCalificadasDAO.registrar(demanda);
 

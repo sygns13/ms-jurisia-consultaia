@@ -168,6 +168,14 @@ public class DemandasSentencias {
     @Schema(description = "Descripción del nombre del Demandante", example = "Maria Ruiz")
     private String xdescDemandante;
 
+    @Column(name = "codSede", length = 20)
+    @Schema(description = "Código de la sede SIJ de la instancia (resuelto desde ms-jurisia-judicial)", example = "0201")
+    private String codSede;
+
+    @Column(name = "sede", length = 200)
+    @Schema(description = "Descripción de la sede SIJ de la instancia", example = "Sede Central de Corte")
+    private String sede;
+
     @Transient
     private Integer configurationsId;
 }
