@@ -853,8 +853,11 @@ public class SentenciaServiceImpl implements SentenciaService {
             synchronized (this) {
                 c = cachedCredentials;
                 if (c == null) {
+                    // El refresh del token OAuth (oauth2.googleapis.com) debe salir por el mismo proxy que
+                    // Vertex/GCS: sin HttpTransportFactory, google-auth usa un transporte directo sin proxy.
                     c = GoogleCredentials.fromStream(
-                            new ByteArrayInputStream(properties.getGcpCredentialsContent().getBytes(StandardCharsets.UTF_8))
+                            new ByteArrayInputStream(properties.getGcpCredentialsContent().getBytes(StandardCharsets.UTF_8)),
+                            this::buildHttpTransport
                     ).createScoped(Collections.singletonList(properties.getGcpScoped()));
                     cachedCredentials = c;
                 }
