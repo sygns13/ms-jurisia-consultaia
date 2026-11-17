@@ -40,10 +40,20 @@ public class ConfigProperties {
     @Value("${sij.proxy.config.port}")
     private Integer proxyPort;
 
-    // --- Proxy NUEVO por PAC (AD_total). Usado por todo el tráfico hacia Google Cloud / Vertex /
-    //     Gemini / GCS. El proxy real lo decide el PAC en cada host (ver ProxyPacServiceImpl). ---
+    // --- Proxy hacia Google Cloud / Vertex / Gemini / GCS (ver ProxyPacServiceImpl). Según el modo,
+    //     el proxy lo decide el PAC institucional (AD_total) en cada host o es uno fijo. ---
     @Value("${sij.proxy.google.enabled:false}")
     private Boolean proxyGoogleEnabled;
+
+    // "pac" = el PAC decide el proxy por host; "fijo" = todo Google sale por sij.proxy.google.fijo.
+    @Value("${sij.proxy.google.modo:pac}")
+    private String proxyGoogleModo;
+
+    @Value("${sij.proxy.google.fijo.host:}")
+    private String proxyGoogleFijoHost;
+
+    @Value("${sij.proxy.google.fijo.port:0}")
+    private Integer proxyGoogleFijoPort;
 
     @Value("${sij.proxy.google.pacUrl}")
     private String proxyGooglePacUrl;

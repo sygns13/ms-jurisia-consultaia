@@ -9,9 +9,10 @@ import java.net.URL;
  * Punto único de salida por proxy para todo el tráfico hacia Google (Vertex AI / Gemini,
  * embeddings, Vector Search, Cloud Storage y el refresh del token OAuth).
  *
- * El proxy no es fijo: lo decide, host por host, el PAC institucional ({@code sij.proxy.google.pacUrl}),
- * salvo el dominio de Vector Search ({@code sij.proxy.vectorSearch}), que los proxys de Google del
- * PAC rechazan y por eso sale por un proxy fijo.
+ * Con {@code sij.proxy.google.modo=pac} el proxy lo decide, host por host, el PAC institucional
+ * ({@code sij.proxy.google.pacUrl}); con {@code modo=fijo} todo sale por {@code sij.proxy.google.fijo}.
+ * En ambos modos el dominio de Vector Search ({@code sij.proxy.vectorSearch}), que los proxys de Google
+ * del PAC rechazan, sale por su propio proxy fijo.
  */
 public interface ProxyPacService {
 
@@ -22,8 +23,8 @@ public interface ProxyPacService {
     NetHttpTransport crearTransporteGoogle();
 
     /**
-     * Proxy que corresponde a la URL: el fijo de Vector Search para su dominio, el que indique el PAC
-     * para el resto, o el de respaldo si el PAC aún no se pudo cargar.
+     * Proxy que corresponde a la URL: el de Vector Search para su dominio; para el resto, el fijo en
+     * modo fijo, o el que indique el PAC (o el de respaldo si el PAC aún no se pudo cargar).
      */
     Proxy resolverProxy(URL url);
 }

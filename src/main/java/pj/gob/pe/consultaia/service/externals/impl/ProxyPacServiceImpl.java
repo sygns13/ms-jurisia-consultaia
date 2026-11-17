@@ -43,6 +43,12 @@ import java.util.Map;
  *
  * El PAC se ejecuta en Nashorn con {@code --no-java} y un filtro que niega toda clase Java: es código
  * descargado de la red y no debe poder tocar la JVM.
+ *
+ * MODO FIJO ({@code sij.proxy.google.modo=fijo}): todo Google sale por {@code sij.proxy.google.fijo}
+ * y el PAC no se descarga ni se evalúa. Existe porque el PAC puede responder algo inservible para el
+ * servidor: hoy devuelve DIRECT a la red 172.17.16.0/21 aunque la salida directa está bloqueada, y
+ * sus nodos 172.18.3.x solo son alcanzables si la ruta a esa red sale por la interfaz institucional.
+ * Vector Search conserva su proxy propio en ambos modos.
  */
 @Service
 @RequiredArgsConstructor
@@ -57,6 +63,9 @@ public class ProxyPacServiceImpl implements ProxyPacService {
 
     /** Host representativo con el que se registra en el log el proxy elegido al cargar el PAC. */
     private static final String HOST_REFERENCIA = "aiplatform.googleapis.com";
+
+    private static final String MODO_PAC = "pac";
+    private static final String MODO_FIJO = "fijo";
 
     /**
      * Funciones auxiliares que el navegador pone a disposición del PAC (las que usa el PAC del PJ más
@@ -105,6 +114,21 @@ public class ProxyPacServiceImpl implements ProxyPacService {
             logger.info("[Proxy PAC] Deshabilitado (sij.proxy.google.enabled=false): Google sale sin proxy");
             return;
         }
+        String modo = modo();
+        if (MODO_FIJO.equals(modo)) {
+            // Falla el arranque: con el modo fijo mal configurado cada llamada a Google fallaría igual.
+            if (properties.getProxyGoogleFijoHost() == null || properties.getProxyGoogleFijoHost().isBlank()
+                    || properties.getProxyGoogleFijoPort() == null || properties.getProxyGoogleFijoPort() <= 0) {
+                throw new IllegalStateException(
+                        "sij.proxy.google.modo=fijo requiere sij.proxy.google.fijo.host y sij.proxy.google.fijo.port");
+            }
+            logger.info("[Proxy Google] Modo fijo: todo Google sale por {} (el PAC no se consulta)",
+                    describir(proxyFijo()));
+            return;
+        }
+        if (!MODO_PAC.equals(modo)) {
+            logger.warn("[Proxy Google] Modo '{}' no reconocido (valores: pac, fijo). Se usa pac", modo);
+        }
         // Carga temprana: el primer usuario no paga la descarga y un PAC inaccesible se ve en el log.
         resolverPorPac("https", HOST_REFERENCIA);
     }
@@ -128,7 +152,21 @@ public class ProxyPacServiceImpl implements ProxyPacService {
         if (!Boolean.TRUE.equals(properties.getProxyGoogleEnabled())) {
             return Proxy.NO_PROXY;
         }
+        if (MODO_FIJO.equals(modo())) {
+            return proxyFijo();
+        }
         return resolverPorPac(url.getProtocol(), host);
+    }
+
+    /** Modo configurado, normalizado ("pac" si no se indica). */
+    private String modo() {
+        String modo = properties.getProxyGoogleModo();
+        return modo == null || modo.isBlank() ? MODO_PAC : modo.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private Proxy proxyFijo() {
+        return new Proxy(Proxy.Type.HTTP,
+                new InetSocketAddress(properties.getProxyGoogleFijoHost().trim(), properties.getProxyGoogleFijoPort()));
     }
 
     // ====================================================================
