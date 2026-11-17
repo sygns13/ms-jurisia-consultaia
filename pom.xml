@@ -28,6 +28,10 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<!-- Lombok 1.18.36 (el que trae Spring Boot 3.4.3) no es compatible con el compilador JDT de la
+		     extensión Java de VS Code (redhat.java 1.57): marca "Flexible Constructor Bodies" en cada
+		     @RequiredArgsConstructor y las clases fallan con "Unresolved compilation problem" al ejecutar. -->
+		<lombok.version>1.18.42</lombok.version>
 	</properties>
 
 	<dependencyManagement>
@@ -143,6 +147,14 @@
 			<groupId>org.apache.pdfbox</groupId>
 			<artifactId>pdfbox</artifactId>
 			<version>2.0.31</version>
+		</dependency>
+
+		<!-- Motor JavaScript para evaluar el PAC del proxy institucional (ProxyPacServiceImpl).
+		     Nashorn salió del JDK en Java 15; este es su sucesor standalone. -->
+		<dependency>
+			<groupId>org.openjdk.nashorn</groupId>
+			<artifactId>nashorn-core</artifactId>
+			<version>15.7</version>
 		</dependency>
 
 	</dependencies>

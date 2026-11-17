@@ -264,7 +264,7 @@ Este valor se registró en la propiedad `vectorSearchPublicDomain`, eliminando i
 
 **Análisis:** la Fase 1 es un paso de **recuperación**, no de análisis final. Extraer palabras clave de la demanda no requiere el modelo más caro y lento (*Pro*). Un modelo **Flash** (más rápido y económico) realiza esa extracción con calidad suficiente.
 
-**Cambio:** el modelo de la Fase 1 se parametrizó (`extractionModel`, p. ej. `gemini-3.5-flash`), mientras que la Fase 4 conserva el modelo *Pro* (`gemini-3.1-pro-preview`), que en producción proviene de la base de datos. De este modo se reduce costo y tiempo del paso de *routing* **sin tocar** la calidad del análisis final.
+**Cambio:** el modelo de la Fase 1 se parametrizó (`extractionModel`, p. ej. `gemini-3.5-flash`), mientras que la Fase 4 conserva el modelo *Pro* (`gemini-4-argon`), que en producción proviene de la base de datos. De este modo se reduce costo y tiempo del paso de *routing* **sin tocar** la calidad del análisis final.
 
 ### 8.3. Control del presupuesto de razonamiento (*thinking budget*)
 
@@ -284,7 +284,7 @@ Para medir con datos reales el peso de cada fase, se añadió un *logging* estru
 
 ```
 [Calificación tiempos] GCS-upload=55.98s | Fase1(extracción gemini-3.8-flash)=8.02s |
-   Fase2(embedding)=1.21s | Fase3(vectorSearch)=1.42s | Fase4(redacción gemini-3.1-pro-preview)=43.47s | Total IA=110.13s
+   Fase2(embedding)=1.21s | Fase3(vectorSearch)=1.42s | Fase4(redacción gemini-4-argon)=43.47s | Total IA=110.13s
 ```
 
 También se añadió un *log* de **diagnóstico del tamaño del PDF** (en bytes, MB, y estimación de bytes en el cable considerando la inflación de base64 y los dos envíos).
@@ -325,7 +325,7 @@ Cada propiedad se mapeó a un campo de `ConfigProperties` mediante `@Value("${gc
 
 | Aspecto | Test (`DemandaTestControllerV2`) | Producción (`GeminiServiceImpl`) |
 |---------|----------------------------------|----------------------------------|
-| Modelo de la Fase 4 | Constante en el controlador (`gemini-3.1-pro-preview`). | Tomado de la base de datos (`configurations.getModel()`). |
+| Modelo de la Fase 4 | Constante en el controlador (`gemini-4-argon`). | Tomado de la base de datos (`configurations.getModel()`). |
 | *System instruction* y *prompt* | Cadenas fijas en el código. | Tomados de la BD (`roleSystem` y `promptDefault`). |
 | `neighborCount` | Ajustado a 15 durante la experimentación. | 20 (propiedad `gcp.neighborCount`). |
 | Configuración (modelos, dominio, etc.) | Campos constantes en la clase. | Externalizada en `application.yml` + `ConfigProperties`. |

@@ -20,7 +20,7 @@ public class ResponseCalificacionDemanda {
     @Schema(description = "Status de la calificación", example = "1")
     private Integer status;
 
-    @Schema(description = "Modelo Gemini utilizado", example = "gemini-3.1-pro-preview")
+    @Schema(description = "Modelo Gemini utilizado", example = "gemini-4-argon")
     private String model;
 
     @Schema(description = "Respuesta generada por Gemini con la calificación de la demanda")

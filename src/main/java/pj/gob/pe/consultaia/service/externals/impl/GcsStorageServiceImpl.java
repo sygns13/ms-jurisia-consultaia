@@ -16,12 +16,11 @@ import pj.gob.pe.consultaia.configuration.ConfigProperties;
 import pj.gob.pe.consultaia.configuration.RetryProperties;
 import pj.gob.pe.consultaia.exception.HttpEstadoException;
 import pj.gob.pe.consultaia.service.externals.GcsStorageService;
+import pj.gob.pe.consultaia.service.externals.ProxyPacService;
 import pj.gob.pe.consultaia.utils.ReintentoUtil;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -52,6 +51,7 @@ public class GcsStorageServiceImpl implements GcsStorageService {
 
     private final ConfigProperties properties;
     private final RetryProperties retryProperties;
+    private final ProxyPacService proxyPacService;
 
     /** Credenciales cacheadas: el token OAuth (~1h) se reutiliza entre subidas. */
     private volatile GoogleCredentials cachedCredentials;
@@ -167,38 +167,9 @@ public class GcsStorageServiceImpl implements GcsStorageService {
         return c;
     }
 
-    /**
-     * Punto único de conmutación del proxy para el tráfico hacia Google / Vertex / GCS.
-     * Por ahora se usa el proxy ANTERIOR. Cuando el equipo de redes habilite el dominio
-     * *.vdb.vertexai.goog (Vector Search) en el proxy nuevo, basta cambiar esta única línea por
-     * {@code return buildHttpTransportProxyGoogle();} para conmutar todo el servicio.
-     */
+    /** Transporte hacia Google con el proxy que dicte el PAC institucional (ver {@link ProxyPacService}). */
     private NetHttpTransport buildHttpTransport() {
-        return buildHttpTransportProxyGoogle();
-    }
-
-    /** Proxy ANTERIOR (general SIJ, {@code sij.proxy.config} → 172.17.16.213:1598). */
-    private NetHttpTransport buildHttpTransportProxyAntiguo() {
-        if (Boolean.TRUE.equals(properties.getProxyEnabled())) {
-            Proxy proxy = new Proxy(Proxy.Type.HTTP,
-                    new InetSocketAddress(properties.getProxyURL(), properties.getProxyPort()));
-            return new NetHttpTransport.Builder().setProxy(proxy).build();
-        }
-        return new NetHttpTransport.Builder().build();
-    }
-
-    /**
-     * Proxy NUEVO (PAC ADcsjan, {@code sij.proxy.google} → proxycsjan(2).pj.gob.pe:3128) para
-     * Google Cloud / Vertex / Gemini. Pendiente: el proxy debe permitir *.vdb.vertexai.goog para
-     * que funcione Vector Search (findNeighbors); hasta entonces se mantiene en uso el antiguo.
-     */
-    private NetHttpTransport buildHttpTransportProxyGoogle() {
-        if (Boolean.TRUE.equals(properties.getProxyGoogleEnabled())) {
-            Proxy proxy = new Proxy(Proxy.Type.HTTP,
-                    new InetSocketAddress(properties.getProxyGoogleHost(), properties.getProxyGooglePort()));
-            return new NetHttpTransport.Builder().setProxy(proxy).build();
-        }
-        return new NetHttpTransport.Builder().build();
+        return proxyPacService.crearTransporteGoogle();
     }
 
     private String extensionDe(String contentType) {

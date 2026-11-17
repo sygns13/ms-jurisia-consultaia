@@ -38,6 +38,7 @@ import pj.gob.pe.consultaia.model.entities.GeminiExpedienteChats;
 import pj.gob.pe.consultaia.service.business.GeminiChatService;
 import pj.gob.pe.consultaia.service.externals.GeminiChatStorageService;
 import pj.gob.pe.consultaia.service.externals.JudicialService;
+import pj.gob.pe.consultaia.service.externals.ProxyPacService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.Constantes;
 import pj.gob.pe.consultaia.utils.PdfOptimizerUtil;
@@ -79,6 +80,7 @@ public class GeminiChatServiceImpl implements GeminiChatService {
     private final GeminiChatsFilesDAO geminiChatsFilesDAO;
     private final GeminiExpedienteChatsDAO geminiExpedienteChatsDAO;
     private final GeminiChatStorageService geminiChatStorageService;
+    private final ProxyPacService proxyPacService;
     private final ConfigProperties properties;
     private final RetryProperties retryProperties;
     private final KafkaTemplate<String, Object> kafkaTemplate;
@@ -874,16 +876,8 @@ public class GeminiChatServiceImpl implements GeminiChatService {
         return c;
     }
 
-    /**
-     * Proxy para el tráfico hacia Vertex / Gemini: mismo punto de conmutación que el resto de
-     * flujos Google del microservicio (proxy nuevo PAC ADcsjan cuando esté habilitado).
-     */
+    /** Transporte hacia Google con el proxy que dicte el PAC institucional (ver {@link ProxyPacService}). */
     private NetHttpTransport buildHttpTransport() {
-        if (Boolean.TRUE.equals(properties.getProxyGoogleEnabled())) {
-            java.net.Proxy proxy = new java.net.Proxy(java.net.Proxy.Type.HTTP,
-                    new java.net.InetSocketAddress(properties.getProxyGoogleHost(), properties.getProxyGooglePort()));
-            return new NetHttpTransport.Builder().setProxy(proxy).build();
-        }
-        return new NetHttpTransport.Builder().build();
+        return proxyPacService.crearTransporteGoogle();
     }
 }

@@ -40,17 +40,41 @@ public class ConfigProperties {
     @Value("${sij.proxy.config.port}")
     private Integer proxyPort;
 
-    // --- Proxy NUEVO (PAC ADcsjan). Usado por Google Cloud / Vertex / Gemini
-    //     (GcsStorageServiceImpl, GeminiServiceImpl). El PAC enruta *.googleapis.com por
-    //     proxycsjan.pj.gob.pe:3128 (alterno por paridad de IP: proxycsjan2.pj.gob.pe:3128). ---
+    // --- Proxy NUEVO por PAC (AD_total). Usado por todo el tráfico hacia Google Cloud / Vertex /
+    //     Gemini / GCS. El proxy real lo decide el PAC en cada host (ver ProxyPacServiceImpl). ---
     @Value("${sij.proxy.google.enabled:false}")
     private Boolean proxyGoogleEnabled;
 
-    @Value("${sij.proxy.google.host}")
-    private String proxyGoogleHost;
+    @Value("${sij.proxy.google.pacUrl}")
+    private String proxyGooglePacUrl;
 
-    @Value("${sij.proxy.google.port}")
-    private Integer proxyGooglePort;
+    // IP que el PAC recibe como myIpAddress(). Vacía = se detecta la interfaz que sale hacia el PAC.
+    @Value("${sij.proxy.google.ipLocal:}")
+    private String proxyGoogleIpLocal;
+
+    @Value("${sij.proxy.google.recargaMinutos:60}")
+    private Integer proxyGoogleRecargaMinutos;
+
+    // Proxy de respaldo mientras el PAC no se haya podido descargar o evaluar.
+    @Value("${sij.proxy.google.respaldo.host}")
+    private String proxyGoogleRespaldoHost;
+
+    @Value("${sij.proxy.google.respaldo.port}")
+    private Integer proxyGoogleRespaldoPort;
+
+    // --- Proxy para Vector Search (findNeighbors contra *.vdb.vertexai.goog). Los proxys de Google
+    //     del PAC rechazan ese dominio (403), así que sale por el proxy ANTERIOR. ---
+    @Value("${sij.proxy.vectorSearch.enabled:false}")
+    private Boolean proxyVectorSearchEnabled;
+
+    @Value("${sij.proxy.vectorSearch.dominio:.vdb.vertexai.goog}")
+    private String proxyVectorSearchDominio;
+
+    @Value("${sij.proxy.vectorSearch.host}")
+    private String proxyVectorSearchHost;
+
+    @Value("${sij.proxy.vectorSearch.port}")
+    private Integer proxyVectorSearchPort;
 
     @Value("${api.judicial.url}")
     private String urlJudicialAPI;
@@ -93,6 +117,10 @@ public class ConfigProperties {
     // Modelo Gemini de la Fase 1 (extracción de conceptos). El de la Fase 4 viene de BD.
     @Value("${gcp.extractionModel}")
     private String gcpExtractionModel;
+
+    // Nivel de razonamiento (LOW/MEDIUM/HIGH) de la Fase 4. Vacío = no se envía thinkingConfig.
+    @Value("${gcp.finalThinkingLevel:}")
+    private String gcpFinalThinkingLevel;
 
     @Value("${gcp.embeddingModel}")
     private String gcpEmbeddingModel;

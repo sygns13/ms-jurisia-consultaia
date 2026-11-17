@@ -39,7 +39,7 @@ public class ResponseListadoDemandaCalificada {
     @Schema(description = "Descripción de la materia")
     private String xdescMateria;
 
-    @Schema(description = "Modelo Gemini utilizado", example = "gemini-3.1-pro-preview")
+    @Schema(description = "Modelo Gemini utilizado", example = "gemini-4-argon")
     private String model;
 
     @Schema(description = "Status de la calificación", example = "1")

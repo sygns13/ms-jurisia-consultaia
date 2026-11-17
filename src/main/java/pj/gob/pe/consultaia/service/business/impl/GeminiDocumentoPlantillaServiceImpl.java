@@ -33,6 +33,7 @@ import pj.gob.pe.consultaia.exception.ValidationSessionServiceException;
 import pj.gob.pe.consultaia.model.entities.Configurations;
 import pj.gob.pe.consultaia.model.entities.GeminiDocumentoPlantilla;
 import pj.gob.pe.consultaia.service.business.GeminiDocumentoPlantillaService;
+import pj.gob.pe.consultaia.service.externals.ProxyPacService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.Constantes;
 import pj.gob.pe.consultaia.utils.ReintentoUtil;
@@ -108,6 +109,7 @@ public class GeminiDocumentoPlantillaServiceImpl implements GeminiDocumentoPlant
     private final SecurityService securityService;
     private final ConfigurationDAO configurationDAO;
     private final GeminiDocumentoPlantillaDAO geminiDocumentoPlantillaDAO;
+    private final ProxyPacService proxyPacService;
     private final ConfigProperties properties;
     private final RetryProperties retryProperties;
     private final ObjectMapper objectMapper;
@@ -497,13 +499,9 @@ public class GeminiDocumentoPlantillaServiceImpl implements GeminiDocumentoPlant
         return c;
     }
 
+    /** Transporte hacia Google con el proxy que dicte el PAC institucional (ver {@link ProxyPacService}). */
     private NetHttpTransport buildHttpTransport() {
-        if (Boolean.TRUE.equals(properties.getProxyGoogleEnabled())) {
-            java.net.Proxy proxy = new java.net.Proxy(java.net.Proxy.Type.HTTP,
-                    new java.net.InetSocketAddress(properties.getProxyGoogleHost(), properties.getProxyGooglePort()));
-            return new NetHttpTransport.Builder().setProxy(proxy).build();
-        }
-        return new NetHttpTransport.Builder().build();
+        return proxyPacService.crearTransporteGoogle();
     }
 
     /** Forma de la respuesta JSON del modelo. */

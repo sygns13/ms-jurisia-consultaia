@@ -105,7 +105,7 @@ public class DemandaTestController {
                     Retrieval retrieval = Retrieval.newBuilder().setVertexAiSearch(vertexAiSearch).build();
                     Tool herramientaLeyes = Tool.newBuilder().setRetrieval(retrieval).build();
 
-                    GenerativeModel model = new GenerativeModel("gemini-3.1-pro-preview", vertexAI)
+                    GenerativeModel model = new GenerativeModel("gemini-4-argon", vertexAI)
                             .withSystemInstruction(ContentMaker.fromString(
                                     /*"Eres un Asistente Judicial del Perú experto en Derecho Procesal.\n" +
                                             "    TU TAREA: Analizar la demanda adjunta y cruzarla con la normativa legal recuperada.\n" +

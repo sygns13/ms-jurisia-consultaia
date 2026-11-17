@@ -9,7 +9,7 @@
 INSERT INTO JURISDB_CONSULTATIONIA.Configurations
     (serviceCode, model, descripcion, roleSystem, promptDefault, maxMessages, temperature, activo, borrado, maxOutputTokens)
 VALUES
-    ('geminy_sentencia_1', 'gemini-3.1-pro-preview', 'Servicio de Generación de la Sentencia de la Demanda',
+    ('geminy_sentencia_1', 'gemini-4-argon', 'Servicio de Generación de la Sentencia de la Demanda',
      'Eres un Asistente Judicial Virtual experto en derecho peruano con amplia experiencia en legislación, normativas y jurisprudencia. A partir de una demanda ingresada generas automáticamente el borrador de la SENTENCIA correspondiente. Tu respuesta debe ser directamente el texto de la sentencia.',
      'Por favor genera la sentencia de la demanda, tu respuesta debe contener solo el borrador de la sentencia judicial',
      1, 0.0, 1, 0, 8192);

@@ -17,12 +17,11 @@ import pj.gob.pe.consultaia.configuration.GeminiChatProperties;
 import pj.gob.pe.consultaia.configuration.RetryProperties;
 import pj.gob.pe.consultaia.exception.HttpEstadoException;
 import pj.gob.pe.consultaia.service.externals.GeminiChatStorageService;
+import pj.gob.pe.consultaia.service.externals.ProxyPacService;
 import pj.gob.pe.consultaia.utils.ReintentoUtil;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -45,6 +44,7 @@ public class GeminiChatStorageServiceImpl implements GeminiChatStorageService {
     private final ConfigProperties properties;
     private final GeminiChatProperties chatProperties;
     private final RetryProperties retryProperties;
+    private final ProxyPacService proxyPacService;
 
     /** Credenciales cacheadas: el token OAuth (~1h) se reutiliza entre subidas. */
     private volatile GoogleCredentials cachedCredentials;
@@ -128,17 +128,8 @@ public class GeminiChatStorageServiceImpl implements GeminiChatStorageService {
         return c;
     }
 
-    /**
-     * Punto único de conmutación del proxy para el tráfico hacia Google / Vertex / GCS.
-     * Misma estrategia que {@link GcsStorageServiceImpl}: proxy nuevo (PAC ADcsjan) cuando esté
-     * habilitado en properties.
-     */
+    /** Transporte hacia Google con el proxy que dicte el PAC institucional (ver {@link ProxyPacService}). */
     private NetHttpTransport buildHttpTransport() {
-        if (Boolean.TRUE.equals(properties.getProxyGoogleEnabled())) {
-            Proxy proxy = new Proxy(Proxy.Type.HTTP,
-                    new InetSocketAddress(properties.getProxyGoogleHost(), properties.getProxyGooglePort()));
-            return new NetHttpTransport.Builder().setProxy(proxy).build();
-        }
-        return new NetHttpTransport.Builder().build();
+        return proxyPacService.crearTransporteGoogle();
     }
 }

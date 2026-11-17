@@ -45,7 +45,9 @@ import pj.gob.pe.consultaia.service.business.ChunkStoreService;
 import pj.gob.pe.consultaia.service.business.SentenciaService;
 import pj.gob.pe.consultaia.service.externals.FtpService;
 import pj.gob.pe.consultaia.service.externals.GcsStorageService;
+import pj.gob.pe.consultaia.service.externals.GeminiGeneracionService;
 import pj.gob.pe.consultaia.service.externals.JudicialService;
+import pj.gob.pe.consultaia.service.externals.ProxyPacService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.beans.responses.DataSedeDTO;
 import pj.gob.pe.consultaia.utils.Constantes;
@@ -66,8 +68,6 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -103,6 +103,8 @@ public class SentenciaServiceImpl implements SentenciaService {
     private final KafkaTemplate<String, Object> kafkaTemplate;
     private final ChunkStoreService chunkStoreService;
     private final GcsStorageService gcsStorageService;
+    private final ProxyPacService proxyPacService;
+    private final GeminiGeneracionService geminiGeneracionService;
     private final JudicialService judicialService;
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -115,6 +117,9 @@ public class SentenciaServiceImpl implements SentenciaService {
 
     private static final String SERVICE_CODE = "geminy_sentencia_1";
     private static final String KAFKA_TOPIC = "judicial-metrics-sentencias";
+
+    /** Espera máxima de la Fase 4: la sentencia se redacta completa (hasta 65535 tokens) y razonando. */
+    private static final int TIMEOUT_FASE4_MS = 900_000;
 
     /**
      * Prompt interno (Fase 1) para que Gemini extraiga los conceptos jurídicos clave de la demanda.
@@ -775,15 +780,6 @@ public class SentenciaServiceImpl implements SentenciaService {
                     ? configurations.getMaxOutputTokens()
                     : 65535;
 
-            GenerationConfig generationConfig = GenerationConfig.newBuilder()
-                    .setTemperature(temperatureValue)
-                    .setMaxOutputTokens(maxOutputTokens)
-                    .build();
-
-            GenerativeModel modeloFinal = new GenerativeModel(configurations.getModel(), vertexAI)
-                    .withSystemInstruction(ContentMaker.fromString(configurations.getRoleSystem()))
-                    .withGenerationConfig(generationConfig);
-
             // El bloque de leyes se envuelve en <normativa_recuperada> porque el PROMPT_DEFAULT referencia esa
             // etiqueta de forma explícita en sus instrucciones, reglas de redacción y marco jurídico.
             String promptEnriquecido = notaMultiparte + String.format(
@@ -796,11 +792,11 @@ public class SentenciaServiceImpl implements SentenciaService {
                     configurations.getPromptDefault(), contextoLeyes
             );
 
-            String sentenciaFinal = ResponseHandler.getText(
-                    ReintentoUtil.ejecutar(retryProperties, "Sentencia Fase 4 (redacción de la sentencia)", () ->
-                            modeloFinal.generateContent(ContentMaker.fromMultiModalData(
-                                    contenidoMultimodal(partesDocumento, promptEnriquecido))))
-            );
+            // Por REST con thinkingLevel (gcp.finalThinkingLevel): el SDK de Vertex no lo soporta.
+            String sentenciaFinal = geminiGeneracionService.generarTexto(
+                    "Sentencia Fase 4 (redacción de la sentencia)", configurations.getModel(),
+                    configurations.getRoleSystem(), gsUris, promptEnriquecido,
+                    temperatureValue, maxOutputTokens, TIMEOUT_FASE4_MS);
             long tFase4Fin = System.nanoTime();
 
             logger.info("[Sentencia tiempos] GCS-upload={}s | Fase1(extracción {})={}s | Fase2(embedding)={}s | " +
@@ -994,28 +990,13 @@ public class SentenciaServiceImpl implements SentenciaService {
     // ====================================================================
     // Utilidades REST (HTTP crudo con NetHttpTransport + proxy + Bearer token)
     // ====================================================================
+    /**
+     * Transporte hacia Vertex / Gemini / GCS. El proxy se decide por host en cada conexión (ver
+     * {@link ProxyPacService}): Vector Search ({@code *.vdb.vertexai.goog}) sale por el proxy fijo
+     * {@code sij.proxy.vectorSearch} y el resto por el que dicte el PAC institucional.
+     */
     private NetHttpTransport buildHttpTransport() {
-        return buildHttpTransportProxyGoogle();
-    }
-
-    /** Proxy ANTERIOR (general SIJ, {@code sij.proxy.config}). */
-    private NetHttpTransport buildHttpTransportProxyAntiguo() {
-        if (Boolean.TRUE.equals(properties.getProxyEnabled())) {
-            Proxy proxy = new Proxy(Proxy.Type.HTTP,
-                    new InetSocketAddress(properties.getProxyURL(), properties.getProxyPort()));
-            return new NetHttpTransport.Builder().setProxy(proxy).build();
-        }
-        return new NetHttpTransport.Builder().build();
-    }
-
-    /** Proxy NUEVO (PAC ADcsjan, {@code sij.proxy.google}) para Google Cloud / Vertex / Gemini. */
-    private NetHttpTransport buildHttpTransportProxyGoogle() {
-        if (Boolean.TRUE.equals(properties.getProxyGoogleEnabled())) {
-            Proxy proxy = new Proxy(Proxy.Type.HTTP,
-                    new InetSocketAddress(properties.getProxyGoogleHost(), properties.getProxyGooglePort()));
-            return new NetHttpTransport.Builder().setProxy(proxy).build();
-        }
-        return new NetHttpTransport.Builder().build();
+        return proxyPacService.crearTransporteGoogle();
     }
 
     private JsonNode ejecutarPost(NetHttpTransport httpTransport, String contexto, String accessToken,

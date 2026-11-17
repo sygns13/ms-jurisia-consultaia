@@ -86,7 +86,7 @@ public class DemandaTestControllerV2 {
     // y Pro para la REDACCIÓN final (Fase 4, máxima calidad). La Fase 4 NO cambia su capacidad.
     // NOTA: confirmar que el ID de Flash exista en el proyecto/región; ajustar si difiere.
     private final String extractionModel = "gemini-3.8-flash";
-    private final String finalModel = "gemini-3.1-pro-preview";
+    private final String finalModel = "gemini-4-argon";
 
     private final String embeddingModel = "text-multilingual-embedding-002";
     private final int neighborCount = 15; // Artículos más relevantes a recuperar

@@ -46,7 +46,9 @@ import pj.gob.pe.consultaia.service.business.GeminiService;
 import pj.gob.pe.consultaia.service.business.JurisprudenciaStoreService;
 import pj.gob.pe.consultaia.service.externals.FtpService;
 import pj.gob.pe.consultaia.service.externals.GcsStorageService;
+import pj.gob.pe.consultaia.service.externals.GeminiGeneracionService;
 import pj.gob.pe.consultaia.service.externals.JudicialService;
+import pj.gob.pe.consultaia.service.externals.ProxyPacService;
 import pj.gob.pe.consultaia.service.externals.SecurityService;
 import pj.gob.pe.consultaia.utils.beans.responses.DataSedeDTO;
 import pj.gob.pe.consultaia.utils.Constantes;
@@ -67,8 +69,6 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.net.InetSocketAddress;
-import java.net.Proxy;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -91,6 +91,8 @@ public class GeminiServiceImpl implements GeminiService {
     private final ChunkStoreService chunkStoreService;
     private final JurisprudenciaStoreService jurisprudenciaStoreService;
     private final GcsStorageService gcsStorageService;
+    private final ProxyPacService proxyPacService;
+    private final GeminiGeneracionService geminiGeneracionService;
     private final JudicialService judicialService;
 
     private final ObjectMapper mapper = new ObjectMapper();
@@ -111,6 +113,9 @@ public class GeminiServiceImpl implements GeminiService {
 
     private static final String SERVICE_CODE = "geminy_demanda_1";
     private static final String KAFKA_TOPIC = "judicial-metrics-califications";
+
+    /** Espera máxima de la Fase 4 (redacción con razonamiento). */
+    private static final int TIMEOUT_FASE4_MS = 300_000;
 
     /**
      * Prompt interno (Fase 1) para que Gemini extraiga los conceptos jurídicos clave de la
@@ -646,15 +651,6 @@ public class GeminiServiceImpl implements GeminiService {
                     ? configurations.getMaxOutputTokens()
                     : 8192;
 
-            GenerationConfig generationConfig = GenerationConfig.newBuilder()
-                    .setTemperature(temperatureValue)
-                    .setMaxOutputTokens(maxOutputTokens)
-                    .build();
-
-            GenerativeModel modeloFinal = new GenerativeModel(configurations.getModel(), vertexAI)
-                    .withSystemInstruction(ContentMaker.fromString(configurations.getRoleSystem()))
-                    .withGenerationConfig(generationConfig);
-
             String seccionEjemplos = ejemplosJurisprudencia.isEmpty() ? "" : String.format(
                     "EJEMPLOS DE RESOLUCIONES REALES DE ESTE JUZGADO (misma materia, anonimizadas):%n" +
                             "Úsalos como referencia de estructura, estilo de redacción, desarrollo de considerandos " +
@@ -675,11 +671,11 @@ public class GeminiServiceImpl implements GeminiService {
                     configurations.getPromptDefault(), contextoLeyes, seccionEjemplos
             );
 
-            String resolucionFinal = ResponseHandler.getText(
-                    ReintentoUtil.ejecutar(retryProperties, "Calificación Fase 4 (redacción de la resolución)", () ->
-                            modeloFinal.generateContent(ContentMaker.fromMultiModalData(
-                                    contenidoMultimodal(partesDocumento, promptEnriquecido))))
-            );
+            // Por REST con thinkingLevel (gcp.finalThinkingLevel): el SDK de Vertex no lo soporta.
+            String resolucionFinal = geminiGeneracionService.generarTexto(
+                    "Calificación Fase 4 (redacción de la resolución)", configurations.getModel(),
+                    configurations.getRoleSystem(), gsUris, promptEnriquecido,
+                    temperatureValue, maxOutputTokens, TIMEOUT_FASE4_MS);
             long tFase4Fin = System.nanoTime();
 
             logger.info("[Calificación tiempos] GCS-upload={}s | Fase1(extracción {})={}s | Fase2(embedding)={}s | " +
@@ -905,37 +901,12 @@ public class GeminiServiceImpl implements GeminiService {
     // Utilidades REST (HTTP crudo con NetHttpTransport + proxy + Bearer token)
     // ====================================================================
     /**
-     * Punto único de conmutación del proxy para el tráfico hacia Vertex / Gemini / GCS.
-     * Por ahora se usa el proxy ANTERIOR. Cuando el equipo de redes habilite el dominio
-     * *.vdb.vertexai.goog (Vector Search) en el proxy nuevo, basta cambiar esta única línea por
-     * {@code return buildHttpTransportProxyGoogle();} para conmutar todo el servicio.
+     * Transporte hacia Vertex / Gemini / GCS. El proxy se decide por host en cada conexión (ver
+     * {@link ProxyPacService}): Vector Search ({@code *.vdb.vertexai.goog}) sale por el proxy fijo
+     * {@code sij.proxy.vectorSearch} y el resto por el que dicte el PAC institucional.
      */
     private NetHttpTransport buildHttpTransport() {
-        return buildHttpTransportProxyGoogle();
-    }
-
-    /** Proxy ANTERIOR (general SIJ, {@code sij.proxy.config} → 172.17.16.213:1598). */
-    private NetHttpTransport buildHttpTransportProxyAntiguo() {
-        if (Boolean.TRUE.equals(properties.getProxyEnabled())) {
-            Proxy proxy = new Proxy(Proxy.Type.HTTP,
-                    new InetSocketAddress(properties.getProxyURL(), properties.getProxyPort()));
-            return new NetHttpTransport.Builder().setProxy(proxy).build();
-        }
-        return new NetHttpTransport.Builder().build();
-    }
-
-    /**
-     * Proxy NUEVO (PAC ADcsjan, {@code sij.proxy.google} → proxycsjan(2).pj.gob.pe:3128) para
-     * Google Cloud / Vertex / Gemini. Pendiente: el proxy debe permitir *.vdb.vertexai.goog para
-     * que funcione Vector Search (findNeighbors); hasta entonces se mantiene en uso el antiguo.
-     */
-    private NetHttpTransport buildHttpTransportProxyGoogle() {
-        if (Boolean.TRUE.equals(properties.getProxyGoogleEnabled())) {
-            Proxy proxy = new Proxy(Proxy.Type.HTTP,
-                    new InetSocketAddress(properties.getProxyGoogleHost(), properties.getProxyGooglePort()));
-            return new NetHttpTransport.Builder().setProxy(proxy).build();
-        }
-        return new NetHttpTransport.Builder().build();
+        return proxyPacService.crearTransporteGoogle();
     }
 
     private JsonNode ejecutarPost(NetHttpTransport httpTransport, String contexto, String accessToken,
